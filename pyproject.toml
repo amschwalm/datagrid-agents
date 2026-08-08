@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datagrid-agents"
+version = "0.1.0"
+description = "Construction AI agents built on the Datagrid API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "datagrid-agents contributors" }]
+dependencies = [
+  "datagrid_ai>=0.16.0",
+  "python-dotenv>=1.0.0",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+datagrid-agents = "datagrid_agents.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+datagrid_agents = ["definitions/*.yaml"]

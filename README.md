@@ -1,1 +1,128 @@
 # datagrid-agents
+
+Construction-focused AI agents built on the [Datagrid API](https://developers.datagrid.com).
+
+This repo gives you ready-made agent blueprints (RFI review, submittals, safety, schedule risk, daily reports, change orders), a small Python CLI to create/sync them in your Datagrid workspace, and examples for running prompts through Converse.
+
+## Prerequisites
+
+1. A Datagrid account and API key from [app.datagrid.com](https://app.datagrid.com) (API Keys).
+2. Python 3.10+.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+# edit .env and set DATAGRID_API_KEY
+```
+
+Optional: set `CONSTRUCTION_KNOWLEDGE_IDS` to a comma-separated list of Datagrid knowledge IDs so agents are scoped to your project docs instead of all org knowledge.
+
+## Quick start
+
+List the local construction agent blueprints:
+
+```bash
+datagrid-agents list
+# or: python -m datagrid_agents.cli list
+```
+
+Create them in your Datagrid organization (IDs are saved to `.agent_ids.json`):
+
+```bash
+datagrid-agents create
+# or one agent:
+datagrid-agents create rfi_reviewer
+```
+
+Run an agent (uses the definition's sample prompt if you omit `--prompt`):
+
+```bash
+datagrid-agents run rfi_reviewer
+datagrid-agents run rfi_reviewer -p "Review RFI-12 for missing drawing references."
+```
+
+Update agents after editing YAML definitions:
+
+```bash
+datagrid-agents sync
+```
+
+List agents already in Datagrid:
+
+```bash
+datagrid-agents remote
+```
+
+## Included agents
+
+| Slug | Use case |
+| --- | --- |
+| `rfi_reviewer` | Completeness / clarity checks before RFIs go to design |
+| `submittal_checker` | Spec vs product data review and disposition notes |
+| `safety_observer` | Hazard spotting from reports/photos with corrective actions |
+| `schedule_risk` | Critical-path and delay risk analysis |
+| `daily_report_summarizer` | Field report → PM/owner summary |
+| `change_order_analyst` | COR documentation and pricing gap review |
+
+Definitions live in `src/datagrid_agents/definitions/*.yaml`. Each file sets:
+
+- `system_prompt` — role and scope
+- `custom_prompt` — response format
+- `planning_prompt` — multi-step approach
+- `tools` — Datagrid tools (e.g. `semantic_search`, `pdf_extraction`)
+- `agent_model` — defaults to `magpie-2.5` (Execute tier)
+
+## Add your own agent
+
+1. Copy an existing YAML file in `src/datagrid_agents/definitions/`.
+2. Change the filename slug, name, prompts, and tools.
+3. Run `datagrid-agents sync <slug>`.
+4. Run `datagrid-agents run <slug> -p "..."`.
+
+Or draft from natural language with Datagrid's generate flow:
+
+```bash
+python examples/generate_agent_from_prompt.py "An agent that reviews punch lists by trade"
+```
+
+## Examples
+
+- `examples/create_and_run_rfi_agent.py` — sync + converse for the RFI agent
+- `examples/generate_agent_from_prompt.py` — generate → claim → create
+
+## Project layout
+
+```text
+src/datagrid_agents/
+  cli.py                 # datagrid-agents command
+  client.py              # Datagrid SDK helper
+  registry.py            # load YAML definitions
+  service.py             # create / sync / converse
+  definitions/           # construction agent blueprints
+examples/
+tests/
+```
+
+## Tips for production use
+
+- Scope knowledge with `corpus` / `CONSTRUCTION_KNOWLEDGE_IDS` so agents only read project documents.
+- Prefer least-privilege tools; start narrow and add `pdf_extraction`, `data_analysis`, etc. only when needed.
+- Use `chat_mode=full_agent` for multi-step tool work; use `light_agent` for faster RAG-style answers.
+- Iterate prompts the same way you iterate code: run real RFIs/submittals, then refine YAML and `sync`.
+
+## Docs
+
+- [Datagrid quickstart](https://developers.datagrid.com/introduction/quickstart)
+- [Getting started with Agents](https://developers.datagrid.com/api-reference/agents/agents)
+- [Agent best practices](https://developers.datagrid.com/api-reference/agents/agent-best-practices)
+- [Converse](https://developers.datagrid.com/api-reference/converse/converse-getting-started)
+- Python SDK: [`datagrid_ai`](https://github.com/DatagridAI/datagrid-python)
+
+## Tests
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
