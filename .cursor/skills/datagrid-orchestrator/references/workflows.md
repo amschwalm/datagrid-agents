@@ -44,6 +44,22 @@ When you build a dedicated RFI agent in Datagrid, set `DATAGRID_AGENT_RFI=<id>` 
   -c ./submittals/033000/
 ```
 
+## `lessons_multipass`
+
+**Goal:** Run the Lessons Learned web-app extraction lenses in parallel (20 specialized passes).
+
+**Parallel Datagrid roles:** `lessons_extractor` × 20 lens-scoped prompts
+
+**Local context:** pass the interview Q&A / closeout notes via `-c`; the opening statement is `-p`.
+
+Used by the web extract pipeline (`server/lessons_pipeline.py`) through `run_parallel` with progressive `on_result` events. Tune concurrency with `DATAGRID_ORCH_LESSONS_MAX_WORKERS` (default 20).
+
+```bash
+.venv/bin/datagrid-agents orchestrate lessons_multipass \
+  -p "Utility buyout slipped late in Phase 2" \
+  -c ./notes/interview.md
+```
+
 ## `fanout` (new / custom agents)
 
 Ad-hoc parallel calls for any registered roles. Use this for agents you just built (after adding them to `agents.yaml` or setting `DATAGRID_AGENT_<ROLE>`).

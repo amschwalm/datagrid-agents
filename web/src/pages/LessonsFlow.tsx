@@ -307,8 +307,9 @@ export function LessonsFlow() {
           <>
             <h2>Running multi-pass extraction</h2>
             <p className="sub">
-              Twenty specialized API analyses are cross-linking RFIs, meetings,
-              change events, and more — then aggregating the top 50 findings.
+              The orchestrator is fanning out twenty specialized API analyses in
+              parallel — cross-linking RFIs, meetings, change events, and more —
+              then aggregating the top 50 findings.
             </p>
             <div className="analysis-layout">
               <ConnectivityGraph

@@ -90,35 +90,6 @@ def _converse(role_key: str, prompt: str, *, conversation_id: str | None = None)
     }
 
 
-def _converse_soft(role_key: str, prompt: str, *, conversation_id: str | None = None) -> dict[str, Any]:
-    """Like _converse but returns error payload instead of raising (for worker threads)."""
-    role = load_role(role_key)
-    try:
-        response = service.converse_with_agent(
-            role.id,
-            prompt,
-            chat_mode=role.chat_mode or "full_agent",
-            conversation_id=conversation_id,
-        )
-        return {
-            "role": role_key,
-            "agent_id": role.id,
-            "agent_name": role.name,
-            "text": service.response_text(response),
-            "conversation_id": getattr(response, "conversation_id", None),
-            "error": None,
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "role": role_key,
-            "agent_id": role.id,
-            "agent_name": role.name,
-            "text": "",
-            "conversation_id": conversation_id,
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-
-
 def _format_answers(answers: list[QAItem]) -> str:
     if not answers:
         return "(none yet)"
@@ -201,20 +172,16 @@ def context_followups(body: FollowupsRequest) -> dict[str, Any]:
 
 
 def _run_lessons_job(body: LessonsRequest, emit) -> dict[str, Any]:
+    """Fan out analysis passes through the Datagrid orchestrator."""
     interview = _format_answers(body.answers)
 
-    def converse(prompt: str) -> dict[str, Any]:
-        result = _converse_soft("lessons_extractor", prompt)
-        if result.get("error"):
-            # Surface as empty pass text; pipeline still aggregates what it can.
-            result["text"] = f"(pass error: {result['error']})"
-        return result
-
+    # Default orchestrator converse (budgets/timeouts/cache handled in pipeline).
+    # Per-call errors are captured by run_parallel as AgentResult.error.
     return run_multipass_extraction(
         prompt=body.prompt.strip(),
         interview=interview,
-        converse=converse,
         on_event=emit,
+        cache=False,
     )
 
 
@@ -250,7 +217,7 @@ def lessons_extract_stream(body: LessonsRequest) -> StreamingResponse:
                     "id": "start",
                     "label": "Starting multi-pass lessons extraction",
                     "status": "running",
-                    "detail": "20 analysis calls + cross-reference aggregate",
+                    "detail": "Orchestrator fan-out: 20 analysis calls + cross-reference aggregate",
                 },
             )
             payload = _run_lessons_job(body, emit)

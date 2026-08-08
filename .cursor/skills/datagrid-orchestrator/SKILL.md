@@ -29,7 +29,7 @@ export DATAGRID_API_KEY="${DATAGRID_API_KEY:-$Datagrid_API_KEY}"
   -c path/to/local/context
 ```
 
-Named playbooks: `utility_buyout_risks`, `rfi_packet_qa`, `submittal_disposition`.
+Named playbooks: `utility_buyout_risks`, `rfi_packet_qa`, `submittal_disposition`, `lessons_multipass`.
 
 For **new agents** or custom combos (including calling the same agent multiple times):
 

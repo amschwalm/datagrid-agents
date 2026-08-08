@@ -6,6 +6,9 @@ from typing import Callable
 
 from datagrid_agents.orchestrator.parallel import AgentCall
 from datagrid_agents.orchestrator.workflows import fanout as fanout_workflow
+from datagrid_agents.orchestrator.workflows.lessons_multipass import (
+    build_calls as build_lessons_multipass,
+)
 from datagrid_agents.orchestrator.workflows.rfi_packet_qa import (
     build_calls as build_rfi_packet_qa,
 )
@@ -22,6 +25,7 @@ WORKFLOWS: dict[str, WorkflowBuilder] = {
     "utility_buyout_risks": build_utility_buyout_risks,
     "rfi_packet_qa": build_rfi_packet_qa,
     "submittal_disposition": build_submittal_disposition,
+    "lessons_multipass": build_lessons_multipass,
     "fanout": fanout_workflow.build_calls,
 }
 

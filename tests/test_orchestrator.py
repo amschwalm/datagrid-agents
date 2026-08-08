@@ -43,6 +43,7 @@ def test_list_workflows_includes_playbooks():
         "utility_buyout_risks",
         "rfi_packet_qa",
         "submittal_disposition",
+        "lessons_multipass",
         "fanout",
     } <= names
 
@@ -208,6 +209,7 @@ def test_cli_roles_and_workflows(capsys):
     assert main(["workflows"]) == 0
     workflows_out = capsys.readouterr().out
     assert "utility_buyout_risks" in workflows_out
+    assert "lessons_multipass" in workflows_out
     assert "fanout" in workflows_out
 
 

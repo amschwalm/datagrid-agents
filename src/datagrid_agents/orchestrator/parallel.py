@@ -11,6 +11,9 @@ from datagrid_agents import service
 from datagrid_agents.orchestrator.budget import OrchestratorBudget
 from datagrid_agents.orchestrator.cache import ResultCache
 
+# Fired as each call finishes (including cache hits). Index matches `calls`.
+OnResultCallback = Callable[[int, "AgentCall", "AgentResult"], None]
+
 
 @dataclass(frozen=True)
 class AgentCall:
@@ -78,6 +81,7 @@ def run_parallel(
     budget: OrchestratorBudget | None = None,
     cache: ResultCache | bool | None = True,
     converse: Callable[[AgentCall], Any] | None = None,
+    on_result: OnResultCallback | None = None,
 ) -> list[AgentResult]:
     """Run Datagrid agent calls concurrently; preserve input order in results."""
     if not calls:
@@ -106,18 +110,26 @@ def run_parallel(
     results: dict[int, AgentResult] = {}
     pending: dict[Any, int] = {}
 
+    def _store(index: int, result: AgentResult) -> None:
+        results[index] = result
+        if on_result is not None:
+            on_result(index, calls[index], result)
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for index, call in enumerate(calls):
             if result_cache is not None:
                 cached = result_cache.get(call)
                 if cached is not None:
-                    results[index] = AgentResult(
-                        role=call.role,
-                        agent_id=cached.agent_id,
-                        text=cached.text,
-                        conversation_id=cached.conversation_id,
-                        error=cached.error,
-                        cached=True,
+                    _store(
+                        index,
+                        AgentResult(
+                            role=call.role,
+                            agent_id=cached.agent_id,
+                            text=cached.text,
+                            conversation_id=cached.conversation_id,
+                            error=cached.error,
+                            cached=True,
+                        ),
                     )
                     continue
             future = pool.submit(_execute_call, call, worker)
@@ -135,7 +147,7 @@ def run_parallel(
                         text="",
                         error=f"TimeoutError: call exceeded {timeout}s",
                     )
-                results[index] = result
+                _store(index, result)
                 if result_cache is not None and result.ok:
                     result_cache.put(calls[index], result)
         except FuturesTimeoutError:
@@ -144,11 +156,14 @@ def run_parallel(
                 if index in results:
                     continue
                 future.cancel()
-                results[index] = AgentResult(
-                    role=calls[index].role,
-                    agent_id=calls[index].agent_id,
-                    text="",
-                    error=f"TimeoutError: stage exceeded {timeout}s",
+                _store(
+                    index,
+                    AgentResult(
+                        role=calls[index].role,
+                        agent_id=calls[index].agent_id,
+                        text="",
+                        error=f"TimeoutError: stage exceeded {timeout}s",
+                    ),
                 )
 
     return [results[i] for i in range(len(calls))]

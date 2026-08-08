@@ -1,15 +1,22 @@
-"""Multi-pass lessons extraction: 20 analysis lenses + aggregate top-50."""
+"""Multi-pass lessons extraction via Datagrid orchestrator fan-out."""
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 from typing import Any, Callable
 
+from datagrid_agents.orchestrator.parallel import AgentCall, AgentResult, run_parallel
+from datagrid_agents.orchestrator.registry import load_role
+from datagrid_agents.orchestrator.workflows.lessons_multipass import (
+    ANALYSIS_LENSES,
+    ANALYSIS_PASSES,
+    ROLE_KEY,
+    build_analysis_prompt,
+    build_pass_calls,
+)
 from server.jsonutil import extract_json
 
-ANALYSIS_PASSES = 20
 TARGET_FINDINGS = 50
-MAX_WORKERS = 5
 
 # Visual graph nodes the UI animates while passes run.
 GRAPH_NODES = [
@@ -25,164 +32,58 @@ GRAPH_NODES = [
     "As-Builts",
 ]
 
-# Each pass analyzes through a different construction lens.
-ANALYSIS_LENSES: list[dict[str, str]] = [
-    {
-        "id": "cost",
-        "title": "Cost & contingency",
-        "focus": "cost growth, contingency burn, extras, buyout gaps, and money left on the table",
-        "links": "Buyout,Change Events,RFIs",
-    },
-    {
-        "id": "schedule",
-        "title": "Schedule & sequencing",
-        "focus": "logic ties, float burn, shutdown windows, trade stacking, and recovery options",
-        "links": "Schedule,Meetings,Change Events",
-    },
-    {
-        "id": "procurement",
-        "title": "Procurement & buyout",
-        "focus": "package strategy, vendor commitment, long-lead risk, and scope gaps at buyout",
-        "links": "Buyout,Submittals,Schedule",
-    },
-    {
-        "id": "design_rfi",
-        "title": "Design coordination & RFIs",
-        "focus": "drawing conflicts, RFI latency, incomplete design, and late clarifications",
-        "links": "RFIs,Specs,As-Builts",
-    },
-    {
-        "id": "change",
-        "title": "Change management",
-        "focus": "change events, entitlement, pricing discipline, and owner direction timing",
-        "links": "Change Events,Meetings,RFIs",
-    },
-    {
-        "id": "safety",
-        "title": "Safety & field risk",
-        "focus": "unsafe conditions, near misses, logistics conflicts, and field readiness",
-        "links": "Daily Reports,Meetings,Schedule",
-    },
-    {
-        "id": "quality",
-        "title": "Quality & rework",
-        "focus": "rework drivers, inspection failures, installation standards, and punch trends",
-        "links": "Punchlist,Submittals,Daily Reports",
-    },
-    {
-        "id": "owner",
-        "title": "Owner decisions & approvals",
-        "focus": "decision latency, ambiguous direction, approval bottlenecks, and scope creep",
-        "links": "Meetings,Change Events,RFIs",
-    },
-    {
-        "id": "trades",
-        "title": "Trade coordination",
-        "focus": "handoffs between trades, access conflicts, and multi-trade workface issues",
-        "links": "Meetings,Schedule,Daily Reports",
-    },
-    {
-        "id": "utilities",
-        "title": "Utilities & site logistics",
-        "focus": "utility coordination, shutdowns, laydown, access, and site constraint surprises",
-        "links": "Schedule,Meetings,As-Builts",
-    },
-    {
-        "id": "contract",
-        "title": "Contracts & risk allocation",
-        "focus": "contract gaps, notice failures, risk ownership, and commercial exposure",
-        "links": "Change Events,RFIs,Meetings",
-    },
-    {
-        "id": "comms",
-        "title": "Communication & meetings",
-        "focus": "who knew what when, meeting effectiveness, and information that never landed",
-        "links": "Meetings,RFIs,Daily Reports",
-    },
-    {
-        "id": "docs",
-        "title": "Documentation & as-builts",
-        "focus": "as-built accuracy, document control, and truth vs field conditions",
-        "links": "As-Builts,Specs,RFIs",
-    },
-    {
-        "id": "closeout",
-        "title": "Closeout & turnover",
-        "focus": "closeout package gaps, O&M readiness, commissioning, and turnover friction",
-        "links": "Punchlist,Submittals,As-Builts",
-    },
-    {
-        "id": "staffing",
-        "title": "Labor & staffing",
-        "focus": "crew availability, supervision bandwidth, and skill mismatches",
-        "links": "Daily Reports,Schedule,Meetings",
-    },
-    {
-        "id": "field",
-        "title": "Field conditions",
-        "focus": "unforeseen conditions, weather, access, and site reality vs plan",
-        "links": "Daily Reports,Change Events,As-Builts",
-    },
-    {
-        "id": "permitting",
-        "title": "Permitting & AHJ",
-        "focus": "inspection timing, code interpretations, and authority-having-jurisdiction friction",
-        "links": "Submittals,Meetings,Schedule",
-    },
-    {
-        "id": "bim",
-        "title": "BIM & technology",
-        "focus": "model coordination gaps, clash detection misses, and digital-to-field translation",
-        "links": "RFIs,Specs,As-Builts",
-    },
-    {
-        "id": "stakeholders",
-        "title": "Stakeholder politics",
-        "focus": "competing incentives, escalation paths, and decisions distorted by politics",
-        "links": "Meetings,Change Events,RFIs",
-    },
-    {
-        "id": "memory",
-        "title": "Institutional memory",
-        "focus": "repeatable process failures, what the org should bake into standards next time",
-        "links": "Meetings,Specs,Punchlist",
-    },
+# Re-export for tests / callers that imported these from this module.
+__all__ = [
+    "ANALYSIS_LENSES",
+    "ANALYSIS_PASSES",
+    "TARGET_FINDINGS",
+    "GRAPH_NODES",
+    "build_analysis_prompt",
+    "build_aggregate_prompt",
+    "ensure_fifty",
+    "local_aggregate",
+    "parse_aggregate_result",
+    "parse_pass_result",
+    "run_multipass_extraction",
 ]
 
 
-def build_analysis_prompt(lens: dict[str, str], prompt: str, interview: str) -> str:
-    return f"""
-You are running one specialized pass of a multi-pass lessons-learned extraction.
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
-## Lens
-{lens["title"]} — focus on {lens["focus"]}.
 
-## Opening statement
-{prompt}
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
 
-## Follow-up interview
-{interview}
 
-## Task
-Extract 4 to 8 concrete findings through THIS lens only.
-Cross-link to project artifacts when plausible (RFIs, meetings, change events, submittals, specs, daily reports, buyout, schedule, punchlist, as-builts).
+def lessons_max_workers(override: int | None = None) -> int:
+    """Higher default concurrency than general orchestrator fan-out (20 passes)."""
+    if override is not None:
+        return max(1, override)
+    return max(1, _env_int("DATAGRID_ORCH_LESSONS_MAX_WORKERS", 20))
 
-Return ONLY valid JSON:
-{{
-  "lens": "{lens["id"]}",
-  "summary": "2-3 sentences",
-  "findings": [
-    {{
-      "finding": "short title",
-      "category": "category label",
-      "evidence": "what in the account supports this",
-      "recommendation": "what to do differently",
-      "priority": "high|med|low",
-      "artifacts": ["RFIs", "Meetings"]
-    }}
-  ]
-}}
-""".strip()
+
+def lessons_timeout_seconds(override: float | None = None) -> float:
+    if override is not None:
+        return override
+    # Prefer lessons-specific timeout, then general orch timeout, then 180s.
+    if os.environ.get("DATAGRID_ORCH_LESSONS_TIMEOUT_SECONDS", "").strip():
+        return _env_float("DATAGRID_ORCH_LESSONS_TIMEOUT_SECONDS", 180.0)
+    if os.environ.get("DATAGRID_ORCH_TIMEOUT_SECONDS", "").strip():
+        return _env_float("DATAGRID_ORCH_TIMEOUT_SECONDS", 180.0)
+    return 180.0
 
 
 def build_aggregate_prompt(prompt: str, interview: str, pass_payloads: list[dict[str, Any]]) -> str:
@@ -395,21 +296,31 @@ def parse_aggregate_result(text: str, pass_results: list[dict[str, Any]]) -> dic
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
+ConverseFn = Callable[[AgentCall], Any]
 
 
 def run_multipass_extraction(
     *,
     prompt: str,
     interview: str,
-    converse: Callable[[str], dict[str, Any]],
+    converse: ConverseFn | None = None,
     on_event: EventCallback | None = None,
-    max_workers: int = MAX_WORKERS,
+    max_workers: int | None = None,
+    timeout_seconds: float | None = None,
+    cache: bool = False,
+    role_key: str = ROLE_KEY,
 ) -> dict[str, Any]:
-    """Run 20 analysis calls in parallel, then one aggregate call."""
+    """Run 20 analysis calls through the orchestrator, then one aggregate call."""
 
     def emit(event: str, data: dict[str, Any]) -> None:
         if on_event:
             on_event(event, data)
+
+    role = load_role(role_key)
+    workers = lessons_max_workers(max_workers)
+    timeout = lessons_timeout_seconds(timeout_seconds)
+    lenses = ANALYSIS_LENSES[:ANALYSIS_PASSES]
+    calls = build_pass_calls(prompt, interview, role_key=role_key, lenses=lenses)
 
     emit(
         "step",
@@ -417,68 +328,75 @@ def run_multipass_extraction(
             "id": "prepare",
             "label": "Preparing 20 specialized analysis passes",
             "status": "done",
-            "detail": f"{ANALYSIS_PASSES} lenses across cost, schedule, RFIs, changes, and more",
+            "detail": f"{len(calls)} lenses via orchestrator fan-out (max {workers} workers)",
         },
     )
 
-    pass_results: list[dict[str, Any] | None] = [None] * ANALYSIS_PASSES
+    pass_results: list[dict[str, Any] | None] = [None] * len(calls)
     completed = 0
 
-    def run_one(index: int, lens: dict[str, str]) -> tuple[int, dict[str, Any], dict[str, str]]:
-        analysis_prompt = build_analysis_prompt(lens, prompt, interview)
-        response = converse(analysis_prompt)
-        parsed = parse_pass_result(response.get("text") or "", lens)
+    def on_result(index: int, _call: AgentCall, result: AgentResult) -> None:
+        nonlocal completed
+        lens = lenses[index]
+        text = result.text if result.ok else f"(pass error: {result.error})"
+        parsed = parse_pass_result(text, lens)
         parsed["agent"] = {
-            "agent_id": response.get("agent_id"),
-            "agent_name": response.get("agent_name"),
-            "conversation_id": response.get("conversation_id"),
+            "agent_id": result.agent_id or role.id,
+            "agent_name": role.name,
+            "conversation_id": result.conversation_id,
+            "cached": result.cached,
+            "error": result.error,
         }
-        return index, parsed, lens
+        pass_results[index] = parsed
+        completed += 1
+        link_nodes = [n.strip() for n in lens.get("links", "").split(",") if n.strip()]
+        emit(
+            "pass",
+            {
+                "index": index + 1,
+                "total": len(calls),
+                "completed": completed,
+                "lens": lens["id"],
+                "title": lens["title"],
+                "status": "done" if parsed.get("parse_ok") else "partial",
+                "finding_count": len(parsed.get("findings") or []),
+                "summary": parsed.get("summary") or "",
+                "links": link_nodes,
+                "orchestrator": True,
+                "cached": result.cached,
+            },
+        )
+        if len(link_nodes) >= 2:
+            emit("link", {"from": link_nodes[0], "to": link_nodes[1], "via": lens["title"]})
+        if len(link_nodes) >= 3:
+            emit("link", {"from": link_nodes[1], "to": link_nodes[2], "via": lens["title"]})
 
     emit(
         "step",
         {
             "id": "passes",
-            "label": f"Running {ANALYSIS_PASSES} parallel analysis API calls",
+            "label": f"Orchestrator running {len(calls)} parallel analysis API calls",
             "status": "running",
-            "detail": f"Concurrency {max_workers}",
+            "detail": f"Concurrency {workers} · timeout {timeout:.0f}s",
         },
     )
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(run_one, index, lens): index
-            for index, lens in enumerate(ANALYSIS_LENSES[:ANALYSIS_PASSES])
-        }
-        for future in as_completed(futures):
-            index, parsed, lens = future.result()
-            pass_results[index] = parsed
-            completed += 1
-            link_nodes = [n.strip() for n in lens.get("links", "").split(",") if n.strip()]
-            emit(
-                "pass",
-                {
-                    "index": index + 1,
-                    "total": ANALYSIS_PASSES,
-                    "completed": completed,
-                    "lens": lens["id"],
-                    "title": lens["title"],
-                    "status": "done" if parsed.get("parse_ok") else "partial",
-                    "finding_count": len(parsed.get("findings") or []),
-                    "summary": parsed.get("summary") or "",
-                    "links": link_nodes,
-                },
-            )
-            if len(link_nodes) >= 2:
-                emit("link", {"from": link_nodes[0], "to": link_nodes[1], "via": lens["title"]})
-            if len(link_nodes) >= 3:
-                emit("link", {"from": link_nodes[1], "to": link_nodes[2], "via": lens["title"]})
+    run_parallel(
+        calls,
+        max_workers=workers,
+        timeout_seconds=timeout,
+        # 20 passes (+ headroom); do not inherit the general orch max_calls=12 default.
+        max_calls=max(len(calls) + 2, 24),
+        cache=cache,
+        converse=converse,
+        on_result=on_result,
+    )
 
     emit(
         "step",
         {
             "id": "passes",
-            "label": f"Completed {ANALYSIS_PASSES} analysis API calls",
+            "label": f"Completed {len(calls)} analysis API calls",
             "status": "done",
             "detail": f"{sum(len((r or {}).get('findings') or []) for r in pass_results)} raw findings collected",
         },
@@ -507,8 +425,27 @@ def run_multipass_extraction(
         },
     )
 
-    aggregate_response = converse(build_aggregate_prompt(prompt, interview, compact_passes))
-    aggregate = parse_aggregate_result(aggregate_response.get("text") or "", [r for r in pass_results if r])
+    aggregate_call = AgentCall(
+        role=f"{role_key}:aggregate",
+        agent_id=role.id,
+        prompt=build_aggregate_prompt(prompt, interview, compact_passes),
+        chat_mode=role.chat_mode or "full_agent",
+    )
+    aggregate_results = run_parallel(
+        [aggregate_call],
+        max_workers=1,
+        timeout_seconds=timeout,
+        max_calls=1,
+        cache=cache,
+        converse=converse,
+    )
+    aggregate_response = aggregate_results[0]
+    aggregate_text = (
+        aggregate_response.text
+        if aggregate_response.ok
+        else f"(aggregate error: {aggregate_response.error})"
+    )
+    aggregate = parse_aggregate_result(aggregate_text, [r for r in pass_results if r])
 
     emit(
         "step",
@@ -534,16 +471,22 @@ def run_multipass_extraction(
         "summary": aggregate.get("summary") or "",
         "actions": aggregate.get("actions") or [],
         "findings": aggregate.get("findings") or [],
-        "pass_count": ANALYSIS_PASSES,
+        "pass_count": len(calls),
         "passes_completed": completed,
         "aggregated_locally": bool(aggregate.get("aggregated_locally")),
+        "orchestrator": {
+            "workflow": "lessons_multipass",
+            "max_workers": workers,
+            "timeout_seconds": timeout,
+            "cache": bool(cache),
+        },
         "graph_nodes": GRAPH_NODES,
         "result": {
-            "role": "lessons_extractor",
-            "agent_id": aggregate_response.get("agent_id"),
-            "agent_name": aggregate_response.get("agent_name"),
+            "role": role_key,
+            "agent_id": aggregate_response.agent_id or role.id,
+            "agent_name": role.name,
             "text": aggregate.get("summary") or "",
-            "conversation_id": aggregate_response.get("conversation_id"),
+            "conversation_id": aggregate_response.conversation_id,
         },
         "passes": compact_passes,
     }

@@ -50,6 +50,35 @@ def test_run_parallel_uses_cache(tmp_path: Path):
     assert results[0].text == "cached-text"
 
 
+def test_run_parallel_on_result_callback():
+    seen: list[tuple[int, str, str]] = []
+
+    def converse(call: AgentCall):
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=f"ok:{call.role}")],
+            conversation_id="c1",
+        )
+
+    calls = [
+        AgentCall("a", "id", "p1"),
+        AgentCall("b", "id", "p2"),
+        AgentCall("c", "id", "p3"),
+    ]
+    results = run_parallel(
+        calls,
+        converse=converse,
+        max_workers=3,
+        max_calls=3,
+        cache=False,
+        on_result=lambda index, call, result: seen.append(
+            (index, call.role, result.text)
+        ),
+    )
+    assert len(results) == 3
+    assert sorted(item[0] for item in seen) == [0, 1, 2]
+    assert {item[1] for item in seen} == {"a", "b", "c"}
+
+
 def test_synthesize_dedupes_similar_risks():
     results = [
         AgentResult(

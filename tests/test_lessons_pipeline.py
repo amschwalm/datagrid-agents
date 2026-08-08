@@ -1,5 +1,8 @@
 import json
+from types import SimpleNamespace
 
+from datagrid_agents.orchestrator.parallel import AgentCall
+from datagrid_agents.orchestrator.workflows.lessons_multipass import build_pass_calls
 from server.lessons_pipeline import (
     ANALYSIS_LENSES,
     ANALYSIS_PASSES,
@@ -14,6 +17,14 @@ from server.lessons_pipeline import (
 
 def test_twenty_lenses_configured():
     assert len(ANALYSIS_LENSES) == ANALYSIS_PASSES == 20
+
+
+def test_build_pass_calls_uses_orchestrator_role():
+    calls = build_pass_calls("Utility buyout slipped", "Q: Why?\nA: As-builts wrong")
+    assert len(calls) == ANALYSIS_PASSES
+    assert all(isinstance(call, AgentCall) for call in calls)
+    assert calls[0].role.startswith("lessons_extractor:")
+    assert "Cost & contingency" in calls[0].prompt
 
 
 def test_parse_pass_result_json():
@@ -94,10 +105,11 @@ def test_ensure_fifty_pads_short_aggregate():
     assert len(result["findings"]) == TARGET_FINDINGS
 
 
-def test_run_multipass_extraction_with_stub_converse():
+def test_run_multipass_extraction_via_orchestrator():
     events: list[tuple[str, dict]] = []
 
-    def converse(prompt: str):
+    def converse(call: AgentCall):
+        prompt = call.prompt
         if "aggregation analyst" in prompt:
             findings = [
                 {
@@ -111,23 +123,15 @@ def test_run_multipass_extraction_with_stub_converse():
                 }
                 for i in range(1, TARGET_FINDINGS + 1)
             ]
-            return {
-                "agent_id": "agg",
-                "agent_name": "Lessons",
-                "conversation_id": "c-agg",
-                "text": json.dumps(
-                    {
-                        "summary": "Aggregated summary.",
-                        "actions": ["A1", "A2", "A3", "A4", "A5"],
-                        "findings": findings,
-                    }
-                ),
-            }
-        return {
-            "agent_id": "pass",
-            "agent_name": "Lessons",
-            "conversation_id": "c-pass",
-            "text": json.dumps(
+            text = json.dumps(
+                {
+                    "summary": "Aggregated summary.",
+                    "actions": ["A1", "A2", "A3", "A4", "A5"],
+                    "findings": findings,
+                }
+            )
+        else:
+            text = json.dumps(
                 {
                     "lens": "x",
                     "summary": "Pass summary.",
@@ -142,23 +146,33 @@ def test_run_multipass_extraction_with_stub_converse():
                         }
                     ],
                 }
-            ),
-        }
+            )
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=text)],
+            conversation_id="c-test",
+        )
 
     result = run_multipass_extraction(
         prompt="Utility buyout slipped",
         interview="Q: Why?\nA: As-builts wrong",
         converse=converse,
         on_event=lambda event, data: events.append((event, data)),
-        max_workers=4,
+        max_workers=8,
+        cache=False,
     )
 
     assert result["pass_count"] == 20
     assert result["passes_completed"] == 20
     assert len(result["findings"]) == TARGET_FINDINGS
+    assert result["orchestrator"]["workflow"] == "lessons_multipass"
+    assert result["orchestrator"]["max_workers"] == 8
     assert any(event == "pass" for event, _ in events)
     assert any(event == "link" for event, _ in events)
     assert any(event == "step" for event, _ in events)
+    assert any(
+        event == "step" and "Orchestrator" in (data.get("label") or "")
+        for event, data in events
+    )
 
 
 def test_parse_aggregate_falls_back_without_json():

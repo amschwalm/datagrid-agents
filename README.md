@@ -25,7 +25,7 @@ Optional: set `CONSTRUCTION_KNOWLEDGE_IDS` to a comma-separated list of Datagrid
 
 Monochrome interview UI focused only on lessons extraction:
 
-**Open prompt → dynamic follow-ups → 20 parallel analysis API calls** with live reasoning + project connectivity graph → cross-referenced aggregate **top-50 findings table** → follow-up Q&A
+**Open prompt → dynamic follow-ups → 20 analysis API calls via the Datagrid orchestrator fan-out** (higher concurrency, budgets/timeouts) with live reasoning + project connectivity graph → cross-referenced aggregate **top-50 findings table** → follow-up Q&A
 
 ```bash
 # terminal 1 — API
@@ -90,6 +90,9 @@ datagrid-agents orchestrate utility_buyout_risks \
 # Other playbooks
 datagrid-agents orchestrate rfi_packet_qa -p "Review RFI-12" -c ./packets/rfi-12
 datagrid-agents orchestrate submittal_disposition -p "Disposition 03 30 00" -c ./submittals/033000
+datagrid-agents orchestrate lessons_multipass \
+  -p "Utility buyout slipped late in Phase 2" \
+  -c ./notes/interview.md
 
 # New/custom agents (register in agents.yaml or DATAGRID_AGENT_<ROLE>)
 datagrid-agents orchestrate fanout --roles mentor,rfi --repeat 1 -p "Pressure-test this buyout"
