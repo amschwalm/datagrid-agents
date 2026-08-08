@@ -130,7 +130,13 @@ export async function streamExtractLessons(
   })
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}))
-    throw new Error(data.detail || data.error || `Request failed (${res.status})`)
+    if (res.status === 404) {
+      throw new Error(
+        'API route missing (/api/lessons/extract/stream). Restart the API from latest main on port 8000.',
+      )
+    }
+    const detail = data.detail || data.error || `Request failed (${res.status})`
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
   }
 
   const reader = res.body.getReader()
