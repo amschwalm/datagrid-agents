@@ -25,7 +25,7 @@ Optional: set `CONSTRUCTION_KNOWLEDGE_IDS` to a comma-separated list of Datagrid
 
 Monochrome interview UI for:
 
-1. **Lessons learned extractor** — open prompt → dynamic follow-ups → Datagrid Lessons Learned Extractor
+1. **Lessons learned extractor** — open prompt → dynamic follow-ups → **20 parallel analysis API calls** with live reasoning + project connectivity graph → cross-referenced aggregate **top-50 findings table** → follow-up Q&A
 2. **Construction mentor** — open prompt → dynamic follow-ups → Mentor Agent, then Lessons Extractor as evidence support
 
 ```bash
