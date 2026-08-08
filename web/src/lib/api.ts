@@ -11,6 +11,7 @@ export type Finding = {
   recommendation: string
   priority: 'high' | 'med' | 'low' | string
   sources?: string[]
+  correlation?: string
 }
 
 export type ReasoningStep = {
@@ -29,6 +30,7 @@ export type PassEvent = {
   status: string
   finding_count: number
   summary?: string
+  reasoning?: string
   links?: string[]
 }
 
@@ -36,6 +38,35 @@ export type LinkEvent = {
   from: string
   to: string
   via?: string
+}
+
+export type KnowledgeCandidate = {
+  id: string
+  name: string
+  score?: number
+  status?: string
+}
+
+export type ProjectConfirmResult = {
+  ok: boolean
+  project: string
+  matched: boolean
+  knowledge_id?: string | null
+  knowledge_name?: string | null
+  confidence?: string
+  rationale?: string
+  alternatives?: KnowledgeCandidate[]
+  candidates?: KnowledgeCandidate[]
+  catalog_count?: number
+  reasoning: ReasoningStep[]
+}
+
+export type CreditsUsage = {
+  consumed: number
+  pass_credits?: number
+  aggregate_credits?: number
+  billed_calls?: number
+  pass_calls?: number
 }
 
 export type LessonsExtractResult = {
@@ -47,6 +78,9 @@ export type LessonsExtractResult = {
   passes_completed: number
   aggregated_locally?: boolean
   graph_nodes?: string[]
+  project?: string
+  knowledge_name?: string
+  credits?: CreditsUsage
   result: AgentResult
 }
 
@@ -97,14 +131,21 @@ export async function checkApiHealth(): Promise<{
   return data
 }
 
+export function confirmProject(payload: { project: string }) {
+  return request<ProjectConfirmResult>('/api/context/confirm-project', payload)
+}
+
 export function generateFollowups(payload: {
-  prompt: string
+  prompt?: string
+  project?: string
+  knowledge_name?: string
   prior?: QAItem[]
 }) {
   return request<{
     ok: boolean
     questions: string[]
     used_fallback: boolean
+    reasoning?: ReasoningStep[]
   }>('/api/context/followups', payload)
 }
 
@@ -140,15 +181,20 @@ function parseSseChunk(
   return rest
 }
 
-async function extractLessonsDirect(payload: {
-  prompt: string
+export type ExtractPayload = {
+  prompt?: string
+  project?: string
+  knowledge_id?: string
+  knowledge_name?: string
   answers: QAItem[]
-}): Promise<LessonsExtractResult> {
+}
+
+async function extractLessonsDirect(payload: ExtractPayload): Promise<LessonsExtractResult> {
   return request<LessonsExtractResult>('/api/lessons/extract', payload)
 }
 
 export async function streamExtractLessons(
-  payload: { prompt: string; answers: QAItem[] },
+  payload: ExtractPayload,
   handlers: StreamHandlers,
 ): Promise<LessonsExtractResult> {
   const streamUrl = apiUrl('/api/lessons/extract/stream')
@@ -191,7 +237,6 @@ export async function streamExtractLessons(
 
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}))
-    // 404 is handled above via fallback to /api/lessons/extract.
     const detail = data.detail || data.error || `Request failed (${res.status})`
     throw new Error(
       `${typeof detail === 'string' ? detail : JSON.stringify(detail)} [${streamUrl}]`,
@@ -233,6 +278,7 @@ export function continueLessons(payload: {
   conversation_id?: string | null
   message: string
   prompt?: string
+  project?: string
   findings?: Finding[]
 }) {
   return request<{
@@ -242,5 +288,6 @@ export function continueLessons(payload: {
     summary?: string | null
     actions?: string[] | null
     findings: Finding[]
+    reasoning?: ReasoningStep[]
   }>('/api/lessons/continue', payload)
 }

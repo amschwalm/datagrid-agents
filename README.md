@@ -25,7 +25,7 @@ Optional: set `CONSTRUCTION_KNOWLEDGE_IDS` to a comma-separated list of Datagrid
 
 Monochrome interview UI focused only on lessons extraction:
 
-**Open prompt → dynamic follow-ups → 20 analysis API calls via the Datagrid orchestrator fan-out** (higher concurrency, budgets/timeouts) with live reasoning + project connectivity graph → cross-referenced aggregate **top-50 findings table** → follow-up Q&A
+**Confirm project in Datagrid knowledge → scope-narrowing questions → 20 correlative analysis calls via orchestrator fan-out** with live generative reasoning, elapsed timer, and project connectivity graph → buried-pattern aggregate **top-50 findings table** → follow-up Q&A
 
 ```bash
 # terminal 1 — API

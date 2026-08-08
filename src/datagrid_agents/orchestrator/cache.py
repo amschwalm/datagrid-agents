@@ -56,6 +56,11 @@ class ResultCache:
         if self.ttl_seconds > 0 and (time.time() - saved_at) > self.ttl_seconds:
             return None
         result = data.get("result") or {}
+        credits = result.get("credits_consumed")
+        try:
+            credits_consumed = float(credits) if credits is not None else None
+        except (TypeError, ValueError):
+            credits_consumed = None
         return AgentResult(
             role=call.role,
             agent_id=str(result.get("agent_id") or call.agent_id),
@@ -63,6 +68,7 @@ class ResultCache:
             conversation_id=result.get("conversation_id"),
             error=result.get("error"),
             cached=True,
+            credits_consumed=credits_consumed,
         )
 
     def put(self, call: "AgentCall", result: "AgentResult") -> None:
@@ -77,6 +83,7 @@ class ResultCache:
                 "text": result.text,
                 "conversation_id": result.conversation_id,
                 "error": result.error,
+                "credits_consumed": result.credits_consumed,
             },
         }
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

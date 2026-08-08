@@ -176,3 +176,21 @@ def response_text(response: Any) -> str:
         if isinstance(item, dict) and item.get("text"):
             parts.append(str(item["text"]))
     return "\n".join(parts).strip()
+
+
+def response_credits(response: Any) -> float | None:
+    """Best-effort extraction of credits.consumed from a Converse response."""
+    credits = getattr(response, "credits", None)
+    if credits is None and isinstance(response, dict):
+        credits = response.get("credits")
+    if credits is None:
+        return None
+    consumed = getattr(credits, "consumed", None)
+    if consumed is None and isinstance(credits, dict):
+        consumed = credits.get("consumed")
+    if consumed is None:
+        return None
+    try:
+        return float(consumed)
+    except (TypeError, ValueError):
+        return None

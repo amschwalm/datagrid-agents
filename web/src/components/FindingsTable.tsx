@@ -19,6 +19,7 @@ export function FindingsTable({ findings }: Props) {
               <th>Finding</th>
               <th>Category</th>
               <th>Evidence</th>
+              <th>Why buried</th>
               <th>Recommendation</th>
               <th>Priority</th>
               <th>Sources</th>
@@ -31,6 +32,7 @@ export function FindingsTable({ findings }: Props) {
                 <td>{row.finding}</td>
                 <td>{row.category}</td>
                 <td>{row.evidence}</td>
+                <td>{row.correlation || '—'}</td>
                 <td>{row.recommendation}</td>
                 <td>
                   <span className={`priority priority-${row.priority}`}>{row.priority}</span>

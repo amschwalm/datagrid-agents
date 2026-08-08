@@ -133,35 +133,56 @@ ANALYSIS_LENSES: list[dict[str, str]] = [
 ]
 
 
-def build_analysis_prompt(lens: dict[str, str], prompt: str, interview: str) -> str:
+def build_analysis_prompt(
+    lens: dict[str, str],
+    prompt: str,
+    interview: str,
+    *,
+    project: str = "",
+    knowledge_name: str = "",
+) -> str:
+    project_block = project.strip() or "(unspecified)"
+    knowledge_block = knowledge_name.strip() or "(workspace knowledge)"
     return f"""
-You are running one specialized pass of a multi-pass lessons-learned extraction.
+You are running one specialized pass of a multi-pass lessons-learned extraction
+against Datagrid project knowledge.
+
+## Project
+{project_block}
+
+## Knowledge source
+{knowledge_block}
 
 ## Lens
 {lens["title"]} — focus on {lens["focus"]}.
 
-## Opening statement
+## Extraction brief
 {prompt}
 
-## Follow-up interview
+## Scope guidance from the user
 {interview}
 
 ## Task
 Extract 4 to 8 concrete findings through THIS lens only.
-Cross-link to project artifacts when plausible (RFIs, meetings, change events, submittals, specs, daily reports, buyout, schedule, punchlist, as-builts).
+Prioritize buried, non-obvious signals that require joining multiple artifact types
+(RFIs, meetings, change events, submittals, specs, daily reports, buyout, schedule,
+punchlist, as-builts). Prefer correlative evidence over generic advice.
+When possible, name the cross-links that make the lesson hard to spot in one place.
 
 Return ONLY valid JSON:
 {{
   "lens": "{lens["id"]}",
-  "summary": "2-3 sentences",
+  "summary": "2-3 sentences on what this lens uncovered across sources",
+  "reasoning": "1-2 sentences describing the correlative path you followed",
   "findings": [
     {{
       "finding": "short title",
       "category": "category label",
-      "evidence": "what in the account supports this",
+      "evidence": "what across the knowledge supports this (cite artifact types)",
       "recommendation": "what to do differently",
       "priority": "high|med|low",
-      "artifacts": ["RFIs", "Meetings"]
+      "artifacts": ["RFIs", "Meetings"],
+      "correlation": "why this is easy to miss if sources are read in isolation"
     }}
   ]
 }}
@@ -174,6 +195,8 @@ def build_pass_calls(
     *,
     role_key: str = ROLE_KEY,
     lenses: list[dict[str, str]] | None = None,
+    project: str = "",
+    knowledge_name: str = "",
 ) -> list[AgentCall]:
     """Build one orchestrator AgentCall per analysis lens."""
     role = load_role(role_key)
@@ -184,7 +207,13 @@ def build_pass_calls(
             AgentCall(
                 role=f"{role_key}:{lens['id']}",
                 agent_id=role.id,
-                prompt=build_analysis_prompt(lens, prompt, interview or "(none)"),
+                prompt=build_analysis_prompt(
+                    lens,
+                    prompt,
+                    interview or "(none)",
+                    project=project,
+                    knowledge_name=knowledge_name,
+                ),
                 chat_mode=role.chat_mode or "full_agent",
             )
         )

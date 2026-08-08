@@ -224,13 +224,200 @@ button {
   font-size: 1.15rem;
 }
 
+.progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
 .progress {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-faint);
+  margin: 0;
+}
+
+.elapsed-clock {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.elapsed-clock .elapsed-label {
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+}
+
+.elapsed-clock .elapsed-value {
+  font-size: 0.95rem;
+  color: var(--ink);
+  min-width: 4.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.elapsed-clock.running .elapsed-value {
+  animation: clock-pulse 1.2s ease infinite;
+}
+
+.flow-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 960px) {
+  .flow-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    align-items: start;
+  }
+}
+
+.flow-aside .reasoning {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+}
+
+.confirm-card {
+  border: 1px solid var(--line);
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.65rem;
   margin-bottom: 1.25rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.confirm-card p {
+  margin: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.confirm-card span {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.confirm-card strong {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.confirm-rationale {
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+.alt-list ul {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reasoning-empty {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.95rem;
+}
+
+.credits-box {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 1rem 1.1rem 1.15rem;
+  margin: 0 0 1.5rem;
+  animation: rise 420ms ease both;
+}
+
+.credits-box-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  margin-bottom: 0.85rem;
+}
+
+.credits-box-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.credits-box-head p {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.credits-total {
+  margin: 0 0 0.9rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.credits-total strong {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+.credits-total span {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.credits-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.credits-meta div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.credits-meta dt {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.credits-meta dd {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+@media (max-width: 700px) {
+  .credits-meta {
+    grid-template-columns: 1fr;
+  }
 }
 
 .progress-bar {
@@ -709,6 +896,16 @@ button {
     opacity: 0;
   }
   to {
+    opacity: 1;
+  }
+}
+
+@keyframes clock-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
     opacity: 1;
   }
 }

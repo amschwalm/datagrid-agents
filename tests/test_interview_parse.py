@@ -1,4 +1,4 @@
-from server.interview import parse_questions
+from server.interview import DEFAULT_FOLLOWUPS, parse_questions, parse_reasoning_steps
 
 
 def test_parse_questions_from_object():
@@ -21,3 +21,17 @@ def test_parse_questions_from_array():
 
 def test_parse_questions_empty_on_garbage():
     assert parse_questions("No JSON here") == []
+
+
+def test_default_followups_are_scope_oriented():
+    joined = " ".join(DEFAULT_FOLLOWUPS).lower()
+    assert "artifact" in joined or "phase" in joined
+    assert "verify" in joined or "confirm" in joined
+
+
+def test_parse_reasoning_steps():
+    text = """
+    {"reasoning_steps":[{"id":"a","label":"Scanning","status":"done","detail":"ok"}]}
+    """
+    steps = parse_reasoning_steps(text)
+    assert steps[0]["label"] == "Scanning"

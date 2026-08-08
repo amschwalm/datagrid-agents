@@ -6,8 +6,8 @@ export function Landing() {
       <p className="hero-kicker">Datagrid · Project closeout</p>
       <h1>Lessons Learned</h1>
       <p className="hero-lead">
-        Tell us what happened. We’ll ask follow-ups, run a multi-pass extraction,
-        and return a ranked findings table you can keep asking about.
+        Confirm the project in Datagrid knowledge, narrow the scope, then run a
+        correlative multi-pass extraction that surfaces buried findings across sources.
       </p>
       <div className="cta-row">
         <Link className="btn btn-primary" to="/extract">

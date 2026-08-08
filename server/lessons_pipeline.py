@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Any, Callable
 
@@ -86,43 +87,138 @@ def lessons_timeout_seconds(override: float | None = None) -> float:
     return 180.0
 
 
-def build_aggregate_prompt(prompt: str, interview: str, pass_payloads: list[dict[str, Any]]) -> str:
+def build_aggregate_prompt(
+    prompt: str,
+    interview: str,
+    pass_payloads: list[dict[str, Any]],
+    *,
+    project: str = "",
+    knowledge_name: str = "",
+) -> str:
     return f"""
-You are the aggregation analyst for a multi-pass construction lessons-learned extraction.
+You are the correlative aggregation analyst for a multi-pass construction
+lessons-learned extraction grounded in Datagrid project knowledge.
 
-## Opening statement
+## Project
+{project.strip() or "(unspecified)"}
+
+## Knowledge source
+{knowledge_name.strip() or "(workspace knowledge)"}
+
+## Extraction brief
 {prompt}
 
-## Follow-up interview
+## Scope guidance from the user
 {interview}
 
 ## Pass results ({len(pass_payloads)} analysis calls)
 {pass_payloads}
 
 ## Task
-1. Cross-reference findings across passes. Merge duplicates; keep the strongest wording.
-2. Resolve conflicts by preferring findings with clearer evidence and higher recurrence.
-3. Produce EXACTLY {TARGET_FINDINGS} ranked findings (no fewer, no more).
-4. Write a short executive summary and 5 institutional actions.
+Your job is NOT to restate surface-level themes. Synthesize findings that are
+difficult to discover because the evidence is buried across many sources/lenses.
+1. Cross-link passes: prefer lessons that only become clear when 2+ lenses agree
+   or when artifact types contradict / complete each other.
+2. Elevate non-obvious correlations (e.g. meeting silence + late RFI + buyout gap).
+3. Merge duplicates; keep the strongest correlative wording.
+4. Produce EXACTLY {TARGET_FINDINGS} ranked findings (no fewer, no more).
+5. Write a short executive summary focused on buried patterns, plus 5 actions.
 
 Return ONLY valid JSON:
 {{
-  "summary": "5-8 sentence executive summary",
+  "summary": "5-8 sentence executive summary of hard-to-find correlations",
   "actions": ["action 1", "action 2", "action 3", "action 4", "action 5"],
   "findings": [
     {{
       "rank": 1,
       "finding": "title",
       "category": "category",
-      "evidence": "evidence",
+      "evidence": "multi-source evidence trail",
       "recommendation": "recommendation",
       "priority": "high|med|low",
-      "sources": ["cost", "schedule"]
+      "sources": ["cost", "schedule"],
+      "correlation": "why this was buried / hard to spot"
     }}
   ]
 }}
 The findings array MUST contain exactly {TARGET_FINDINGS} objects ranked 1..{TARGET_FINDINGS}.
 """.strip()
+
+
+_PLAN_VERBS = (
+    "Mapping",
+    "Tracing",
+    "Pressure-testing",
+    "Cross-walking",
+    "Hunting",
+    "Replaying",
+    "Stressing",
+    "Joining",
+)
+
+_DONE_VERBS = (
+    "Correlated",
+    "Surfaced",
+    "Linked",
+    "Pinned",
+    "Triangulated",
+    "Exposed",
+    "Connected",
+    "Isolated",
+)
+
+
+def _stable_pick(options: tuple[str, ...], seed: str) -> str:
+    digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()
+    return options[int(digest[:8], 16) % len(options)]
+
+
+def generative_plan_step(lens: dict[str, str], *, project: str = "") -> dict[str, Any]:
+    links = [n.strip() for n in lens.get("links", "").split(",") if n.strip()]
+    bridge = " ↔ ".join(links[:3]) if links else "project artifacts"
+    verb = _stable_pick(_PLAN_VERBS, f"plan:{lens['id']}:{project}")
+    return {
+        "id": f"lens-{lens['id']}",
+        "label": f"{verb} {lens['title'].lower()} through {bridge}",
+        "status": "running",
+        "detail": f"Queued correlative scan for {lens['focus']}.",
+    }
+
+
+def generative_pass_step(
+    lens: dict[str, str],
+    parsed: dict[str, Any],
+    *,
+    completed: int,
+    total: int,
+) -> dict[str, Any]:
+    findings = parsed.get("findings") or []
+    summary = str(parsed.get("summary") or "").strip()
+    reasoning = str(parsed.get("reasoning") or "").strip()
+    artifacts: list[str] = []
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        for art in item.get("artifacts") or item.get("sources") or []:
+            text = str(art).strip()
+            if text and text not in artifacts:
+                artifacts.append(text)
+    verb = _stable_pick(_DONE_VERBS, f"done:{lens['id']}:{completed}:{summary[:24]}")
+    bridge = " ↔ ".join(artifacts[:3]) if artifacts else lens.get("links", "artifacts")
+    detail_bits = [
+        f"{len(findings)} leads",
+        f"{completed}/{total} passes",
+    ]
+    if reasoning:
+        detail_bits.append(reasoning[:180])
+    elif summary:
+        detail_bits.append(summary[:180])
+    return {
+        "id": f"lens-{lens['id']}",
+        "label": f"{verb} {lens['title'].lower()} via {bridge}",
+        "status": "done" if parsed.get("parse_ok") else "partial",
+        "detail": " · ".join(detail_bits),
+    }
 
 
 def normalize_finding(raw: dict[str, Any], *, default_sources: list[str] | None = None) -> dict[str, Any]:
@@ -132,7 +228,8 @@ def normalize_finding(raw: dict[str, Any], *, default_sources: list[str] | None 
     sources = raw.get("sources") or raw.get("artifacts") or default_sources or []
     if isinstance(sources, str):
         sources = [sources]
-    return {
+    correlation = str(raw.get("correlation") or "").strip()
+    payload = {
         "finding": str(raw.get("finding") or raw.get("title") or "Untitled finding").strip(),
         "category": str(raw.get("category") or "General").strip(),
         "evidence": str(raw.get("evidence") or "").strip(),
@@ -140,6 +237,9 @@ def normalize_finding(raw: dict[str, Any], *, default_sources: list[str] | None 
         "priority": priority,
         "sources": [str(s).strip() for s in sources if str(s).strip()],
     }
+    if correlation:
+        payload["correlation"] = correlation
+    return payload
 
 
 def parse_pass_result(text: str, lens: dict[str, str]) -> dict[str, Any]:
@@ -162,6 +262,7 @@ def parse_pass_result(text: str, lens: dict[str, str]) -> dict[str, Any]:
         "lens": lens["id"],
         "title": lens["title"],
         "summary": str(data.get("summary") or "").strip(),
+        "reasoning": str(data.get("reasoning") or "").strip(),
         "findings": findings,
         "parse_ok": True,
     }
@@ -309,6 +410,8 @@ def run_multipass_extraction(
     timeout_seconds: float | None = None,
     cache: bool = False,
     role_key: str = ROLE_KEY,
+    project: str = "",
+    knowledge_name: str = "",
 ) -> dict[str, Any]:
     """Run 20 analysis calls through the orchestrator, then one aggregate call."""
 
@@ -320,36 +423,58 @@ def run_multipass_extraction(
     workers = lessons_max_workers(max_workers)
     timeout = lessons_timeout_seconds(timeout_seconds)
     lenses = ANALYSIS_LENSES[:ANALYSIS_PASSES]
-    calls = build_pass_calls(prompt, interview, role_key=role_key, lenses=lenses)
+    calls = build_pass_calls(
+        prompt,
+        interview,
+        role_key=role_key,
+        lenses=lenses,
+        project=project,
+        knowledge_name=knowledge_name,
+    )
 
     emit(
         "step",
         {
             "id": "prepare",
-            "label": "Preparing 20 specialized analysis passes",
+            "label": f"Staging correlative fan-out for {project or 'selected project'}",
             "status": "done",
-            "detail": f"{len(calls)} lenses via orchestrator fan-out (max {workers} workers)",
+            "detail": (
+                f"{len(calls)} lenses · {workers} workers · knowledge "
+                f"{knowledge_name or 'workspace default'}"
+            ),
         },
     )
 
+    # Generative per-lens plan so the UI is never idle before first completions.
+    for lens in lenses:
+        emit("step", generative_plan_step(lens, project=project))
+
     pass_results: list[dict[str, Any] | None] = [None] * len(calls)
     completed = 0
+    pass_credits = 0.0
+    pass_credit_calls = 0
 
     def on_result(index: int, _call: AgentCall, result: AgentResult) -> None:
-        nonlocal completed
+        nonlocal completed, pass_credits, pass_credit_calls
         lens = lenses[index]
         text = result.text if result.ok else f"(pass error: {result.error})"
         parsed = parse_pass_result(text, lens)
+        credits = result.credits_consumed
+        if credits is not None and not result.cached:
+            pass_credits += float(credits)
+            pass_credit_calls += 1
         parsed["agent"] = {
             "agent_id": result.agent_id or role.id,
             "agent_name": role.name,
             "conversation_id": result.conversation_id,
             "cached": result.cached,
             "error": result.error,
+            "credits_consumed": credits,
         }
         pass_results[index] = parsed
         completed += 1
         link_nodes = [n.strip() for n in lens.get("links", "").split(",") if n.strip()]
+        emit("step", generative_pass_step(lens, parsed, completed=completed, total=len(calls)))
         emit(
             "pass",
             {
@@ -361,9 +486,11 @@ def run_multipass_extraction(
                 "status": "done" if parsed.get("parse_ok") else "partial",
                 "finding_count": len(parsed.get("findings") or []),
                 "summary": parsed.get("summary") or "",
+                "reasoning": parsed.get("reasoning") or "",
                 "links": link_nodes,
                 "orchestrator": True,
                 "cached": result.cached,
+                "credits_consumed": credits,
             },
         )
         if len(link_nodes) >= 2:
@@ -375,7 +502,7 @@ def run_multipass_extraction(
         "step",
         {
             "id": "passes",
-            "label": f"Orchestrator running {len(calls)} parallel analysis API calls",
+            "label": f"Orchestrator running {len(calls)} parallel correlative scans",
             "status": "running",
             "detail": f"Concurrency {workers} · timeout {timeout:.0f}s",
         },
@@ -396,7 +523,7 @@ def run_multipass_extraction(
         "step",
         {
             "id": "passes",
-            "label": f"Completed {len(calls)} analysis API calls",
+            "label": f"Completed {len(calls)} correlative analysis calls",
             "status": "done",
             "detail": f"{sum(len((r or {}).get('findings') or []) for r in pass_results)} raw findings collected",
         },
@@ -411,6 +538,7 @@ def run_multipass_extraction(
                 "lens": result.get("lens"),
                 "title": result.get("title"),
                 "summary": result.get("summary"),
+                "reasoning": result.get("reasoning"),
                 "findings": result.get("findings") or [],
             }
         )
@@ -419,16 +547,22 @@ def run_multipass_extraction(
         "step",
         {
             "id": "aggregate",
-            "label": "Cross-referencing passes into aggregate top 50",
+            "label": "Synthesizing buried cross-source correlations into top 50",
             "status": "running",
-            "detail": "Merging duplicates and ranking by evidence strength",
+            "detail": "Preferencing multi-lens evidence trails over single-source themes",
         },
     )
 
     aggregate_call = AgentCall(
         role=f"{role_key}:aggregate",
         agent_id=role.id,
-        prompt=build_aggregate_prompt(prompt, interview, compact_passes),
+        prompt=build_aggregate_prompt(
+            prompt,
+            interview,
+            compact_passes,
+            project=project,
+            knowledge_name=knowledge_name,
+        ),
         chat_mode=role.chat_mode or "full_agent",
     )
     aggregate_results = run_parallel(
@@ -446,14 +580,23 @@ def run_multipass_extraction(
         else f"(aggregate error: {aggregate_response.error})"
     )
     aggregate = parse_aggregate_result(aggregate_text, [r for r in pass_results if r])
+    aggregate_credits = (
+        float(aggregate_response.credits_consumed)
+        if aggregate_response.credits_consumed is not None and not aggregate_response.cached
+        else 0.0
+    )
+    total_credits = round(pass_credits + aggregate_credits, 4)
+    credit_calls = pass_credit_calls + (
+        1 if aggregate_response.credits_consumed is not None and not aggregate_response.cached else 0
+    )
 
     emit(
         "step",
         {
             "id": "aggregate",
-            "label": "Aggregate ranking complete",
+            "label": "Correlative ranking complete",
             "status": "done",
-            "detail": f"{len(aggregate.get('findings') or [])} findings finalized",
+            "detail": f"{len(aggregate.get('findings') or [])} buried findings finalized",
         },
     )
 
@@ -467,6 +610,16 @@ def run_multipass_extraction(
         },
     )
 
+    emit(
+        "step",
+        {
+            "id": "credits",
+            "label": f"Extraction used {total_credits:g} Datagrid credits",
+            "status": "done",
+            "detail": f"{credit_calls} billed API calls · {completed} analysis passes + aggregate",
+        },
+    )
+
     return {
         "summary": aggregate.get("summary") or "",
         "actions": aggregate.get("actions") or [],
@@ -474,6 +627,15 @@ def run_multipass_extraction(
         "pass_count": len(calls),
         "passes_completed": completed,
         "aggregated_locally": bool(aggregate.get("aggregated_locally")),
+        "project": project,
+        "knowledge_name": knowledge_name,
+        "credits": {
+            "consumed": total_credits,
+            "pass_credits": round(pass_credits, 4),
+            "aggregate_credits": round(aggregate_credits, 4),
+            "billed_calls": credit_calls,
+            "pass_calls": len(calls),
+        },
         "orchestrator": {
             "workflow": "lessons_multipass",
             "max_workers": workers,

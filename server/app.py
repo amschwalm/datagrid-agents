@@ -30,15 +30,25 @@ if not os.environ.get("DATAGRID_API_KEY") and os.environ.get("Datagrid_API_KEY")
 
 from datagrid_agents import service  # noqa: E402
 from datagrid_agents.orchestrator.registry import load_role  # noqa: E402
-from server.interview import DEFAULT_FOLLOWUPS, parse_questions  # noqa: E402
+from server.interview import (  # noqa: E402
+    DEFAULT_FOLLOWUPS,
+    parse_questions,
+    parse_reasoning_steps,
+)
 from server.jsonutil import extract_json  # noqa: E402
+from server.knowledge import (  # noqa: E402
+    build_confirm_prompt,
+    list_knowledge_catalog,
+    parse_confirm_payload,
+    rank_knowledge_matches,
+)
 from server.lessons_pipeline import (  # noqa: E402
     TARGET_FINDINGS,
     ensure_fifty,
     run_multipass_extraction,
 )
 
-app = FastAPI(title="Lessons Learned", version="0.4.0")
+app = FastAPI(title="Lessons Learned", version="0.5.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,13 +63,22 @@ class QAItem(BaseModel):
     answer: str = ""
 
 
+class ProjectConfirmRequest(BaseModel):
+    project: str
+
+
 class FollowupsRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
+    project: str = ""
+    knowledge_name: str = ""
     prior: list[QAItem] = Field(default_factory=list)
 
 
 class LessonsRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
+    project: str = ""
+    knowledge_id: str = ""
+    knowledge_name: str = ""
     answers: list[QAItem] = Field(default_factory=list)
 
 
@@ -67,6 +86,7 @@ class LessonsContinueRequest(BaseModel):
     conversation_id: str | None = None
     message: str
     prompt: str = ""
+    project: str = ""
     findings: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -100,27 +120,107 @@ def _format_answers(answers: list[QAItem]) -> str:
     return "\n\n".join(blocks)
 
 
+def _build_extraction_brief(body: LessonsRequest) -> str:
+    if body.prompt.strip():
+        return body.prompt.strip()
+    project = body.project.strip() or "unspecified project"
+    knowledge = body.knowledge_name.strip() or "workspace knowledge"
+    return (
+        f"Extract buried, correlative lessons learned for project '{project}' "
+        f"using Datagrid knowledge '{knowledge}'. "
+        "Prioritize evidence that is hard to find across RFIs, meetings, change events, "
+        "submittals, schedule, and field reports."
+    )
+
+
 def _build_followup_prompt(body: FollowupsRequest) -> str:
     prior_block = _format_answers(body.prior)
+    project = body.project.strip() or body.prompt.strip() or "(unspecified)"
+    knowledge = body.knowledge_name.strip() or "(confirmed workspace knowledge)"
     return f"""
-You are interviewing someone so a lessons-learned extractor can capture durable project insights.
+You are scoping a lessons-learned extraction against Datagrid project knowledge.
 
-## Their opening statement
-{body.prompt.strip()}
+## Confirmed project
+{project}
+
+## Confirmed knowledge source
+{knowledge}
 
 ## Answers already collected
 {prior_block}
 
 ## Instructions
-Write 4 to 6 specific follow-up questions that dig into missing context.
-Focus on what happened, root causes, impacts, decisions, stakeholders, and what should change next time.
+Write 4 to 6 scope-narrowing questions that help the extractor do a good job.
+Ask how to approach confirmation of lessons-learned guidance — not a generic
+"what happened" postmortem interview.
+Good angles:
+- which phase/package/time window to prioritize
+- which artifact types to weight
+- what kinds of lessons matter most
+- how to verify a lesson is real (recurrence, impact, owners)
+- what to exclude
 Do not repeat questions already asked.
 Ask one thing per question. Be concrete and construction-specific.
 Do not answer the questions. Do not include commentary.
 
-Return ONLY valid JSON in this exact shape:
-{{"questions":["question 1","question 2","question 3"]}}
+Return ONLY valid JSON:
+{{
+  "questions":["question 1","question 2","question 3"],
+  "reasoning_steps":[
+    {{"id":"scope","label":"Framing scope questions","status":"done","detail":"..."}}
+  ]
+}}
 """.strip()
+
+
+def _fallback_confirm(project: str, ranked: list[dict[str, Any]], catalog_count: int) -> dict[str, Any]:
+    if ranked and float(ranked[0]["score"]) >= 0.55:
+        top = ranked[0]
+        return {
+            "matched": True,
+            "knowledge_id": top["id"],
+            "knowledge_name": top["name"],
+            "confidence": "high" if float(top["score"]) >= 0.9 else "med",
+            "rationale": f'Matched "{project}" to Datagrid knowledge "{top["name"]}".',
+            "alternatives": [
+                {"id": row["id"], "name": row["name"]} for row in ranked[1:4]
+            ],
+            "reasoning": [
+                {
+                    "id": "catalog",
+                    "label": f"Scanned {catalog_count} Datagrid knowledge entries",
+                    "status": "done",
+                    "detail": "Listed workspace knowledge available to this API key",
+                },
+                {
+                    "id": "match",
+                    "label": f'Best match: {top["name"]}',
+                    "status": "done",
+                    "detail": f'Name similarity score {top["score"]}',
+                },
+            ],
+            "candidates": ranked[:5],
+        }
+    return {
+        "matched": False,
+        "knowledge_id": None,
+        "knowledge_name": None,
+        "confidence": "low",
+        "rationale": (
+            f'Could not confirm "{project}" in Datagrid knowledge. '
+            "Check the project name or knowledge availability."
+        ),
+        "alternatives": [{"id": row["id"], "name": row["name"]} for row in ranked[:3]],
+        "reasoning": [
+            {
+                "id": "catalog",
+                "label": f"Scanned {catalog_count} Datagrid knowledge entries",
+                "status": "done",
+                "detail": "No strong name match for the requested project",
+            }
+        ],
+        "candidates": ranked[:5],
+    }
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -144,13 +244,107 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.post("/api/context/confirm-project")
+def confirm_project(body: ProjectConfirmRequest) -> dict[str, Any]:
+    project = body.project.strip()
+    if not project:
+        raise HTTPException(status_code=400, detail="project is required")
+
+    reasoning: list[dict[str, Any]] = [
+        {
+            "id": "ask",
+            "label": "Received project request",
+            "status": "done",
+            "detail": project,
+        },
+        {
+            "id": "catalog",
+            "label": "Listing Datagrid knowledge",
+            "status": "running",
+            "detail": "Checking workspace knowledge available to this API key",
+        },
+    ]
+
+    try:
+        catalog = list_knowledge_catalog()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not list Datagrid knowledge: {exc}",
+        ) from exc
+
+    reasoning[1] = {
+        "id": "catalog",
+        "label": f"Found {len(catalog)} knowledge sources",
+        "status": "done",
+        "detail": ", ".join(item["name"] for item in catalog[:6])
+        + ("…" if len(catalog) > 6 else ""),
+    }
+    ranked = rank_knowledge_matches(project, catalog)
+    reasoning.append(
+        {
+            "id": "rank",
+            "label": "Ranking name matches",
+            "status": "done",
+            "detail": (
+                ", ".join(f'{row["name"]} ({row["score"]})' for row in ranked[:3])
+                or "No local name overlap"
+            ),
+        }
+    )
+
+    result = _converse("lessons_extractor", build_confirm_prompt(project, catalog, ranked))
+    parsed = extract_json(result.get("text") or "")
+    if isinstance(parsed, dict):
+        confirmation = parse_confirm_payload(parsed, ranked)
+    else:
+        confirmation = _fallback_confirm(project, ranked, len(catalog))
+
+    # Prefer model reasoning when present; otherwise keep local trail.
+    if confirmation.get("reasoning"):
+        reasoning.extend(confirmation["reasoning"])
+    else:
+        reasoning.append(
+            {
+                "id": "decide",
+                "label": (
+                    f'Confirmed knowledge: {confirmation["knowledge_name"]}'
+                    if confirmation.get("matched")
+                    else "No confident knowledge match"
+                ),
+                "status": "done" if confirmation.get("matched") else "partial",
+                "detail": confirmation.get("rationale") or "",
+            }
+        )
+
+    return {
+        "ok": True,
+        "project": project,
+        "matched": confirmation["matched"],
+        "knowledge_id": confirmation.get("knowledge_id"),
+        "knowledge_name": confirmation.get("knowledge_name"),
+        "confidence": confirmation.get("confidence"),
+        "rationale": confirmation.get("rationale"),
+        "alternatives": confirmation.get("alternatives") or [],
+        "candidates": confirmation.get("candidates") or ranked[:5],
+        "catalog_count": len(catalog),
+        "reasoning": reasoning,
+        "agent": {
+            "agent_id": result.get("agent_id"),
+            "agent_name": result.get("agent_name"),
+            "conversation_id": result.get("conversation_id"),
+        },
+    }
+
+
 @app.post("/api/context/followups")
 def context_followups(body: FollowupsRequest) -> dict[str, Any]:
-    if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="prompt is required")
+    if not body.project.strip() and not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="project is required")
 
     result = _converse("lessons_extractor", _build_followup_prompt(body))
     questions = parse_questions(result.get("text") or "")
+    reasoning = parse_reasoning_steps(result.get("text") or "")
     used_fallback = False
     if not questions:
         used_fallback = True
@@ -158,11 +352,21 @@ def context_followups(body: FollowupsRequest) -> dict[str, Any]:
         if body.prior:
             asked = {item.question.strip().lower() for item in body.prior}
             questions = [q for q in questions if q.lower() not in asked] or questions
+    if not reasoning:
+        reasoning = [
+            {
+                "id": "scope",
+                "label": "Built scope-narrowing questions",
+                "status": "done",
+                "detail": f"{len(questions)} questions to confirm extraction guidance",
+            }
+        ]
 
     return {
         "ok": True,
         "questions": questions,
         "used_fallback": used_fallback,
+        "reasoning": reasoning,
         "interviewer": {
             "agent_id": result.get("agent_id"),
             "agent_name": result.get("agent_name"),
@@ -174,21 +378,22 @@ def context_followups(body: FollowupsRequest) -> dict[str, Any]:
 def _run_lessons_job(body: LessonsRequest, emit) -> dict[str, Any]:
     """Fan out analysis passes through the Datagrid orchestrator."""
     interview = _format_answers(body.answers)
+    brief = _build_extraction_brief(body)
 
-    # Default orchestrator converse (budgets/timeouts/cache handled in pipeline).
-    # Per-call errors are captured by run_parallel as AgentResult.error.
     return run_multipass_extraction(
-        prompt=body.prompt.strip(),
+        prompt=brief,
         interview=interview,
         on_event=emit,
         cache=False,
+        project=body.project.strip(),
+        knowledge_name=body.knowledge_name.strip(),
     )
 
 
 @app.post("/api/lessons/extract")
 def lessons_extract(body: LessonsRequest) -> dict[str, Any]:
-    if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="prompt is required")
+    if not body.project.strip() and not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="project is required")
 
     events: list[tuple[str, dict[str, Any]]] = []
 
@@ -201,8 +406,8 @@ def lessons_extract(body: LessonsRequest) -> dict[str, Any]:
 
 @app.post("/api/lessons/extract/stream")
 def lessons_extract_stream(body: LessonsRequest) -> StreamingResponse:
-    if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="prompt is required")
+    if not body.project.strip() and not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="project is required")
 
     event_queue: queue.Queue[tuple[str, dict[str, Any]] | None] = queue.Queue()
 
@@ -211,13 +416,14 @@ def lessons_extract_stream(body: LessonsRequest) -> StreamingResponse:
 
     def worker() -> None:
         try:
+            project = body.project.strip() or "selected project"
             emit(
                 "step",
                 {
                     "id": "start",
-                    "label": "Starting multi-pass lessons extraction",
+                    "label": f"Starting correlative extraction for {project}",
                     "status": "running",
-                    "detail": "Orchestrator fan-out: 20 analysis calls + cross-reference aggregate",
+                    "detail": "Orchestrator fan-out: 20 analysis calls + buried-pattern aggregate",
                 },
             )
             payload = _run_lessons_job(body, emit)
@@ -225,7 +431,7 @@ def lessons_extract_stream(body: LessonsRequest) -> StreamingResponse:
                 "step",
                 {
                     "id": "start",
-                    "label": "Starting multi-pass lessons extraction",
+                    "label": f"Extraction finished for {project}",
                     "status": "done",
                     "detail": "Pipeline finished",
                 },
@@ -245,7 +451,7 @@ def lessons_extract_stream(body: LessonsRequest) -> StreamingResponse:
                 "id": "connect",
                 "label": "Connected to extraction pipeline",
                 "status": "done",
-                "detail": "Streaming reasoning and pass progress",
+                "detail": "Streaming generative reasoning and pass progress",
             },
         )
         while True:
@@ -272,7 +478,9 @@ def lessons_continue(body: LessonsContinueRequest) -> dict[str, Any]:
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="message is required")
 
-    context = f"\n\n## Original opening statement\n{body.prompt.strip()}" if body.prompt.strip() else ""
+    context = f"\n\n## Project\n{body.project.strip()}" if body.project.strip() else ""
+    if body.prompt.strip():
+        context += f"\n\n## Extraction brief\n{body.prompt.strip()}"
     findings_block = ""
     if body.findings:
         findings_block = (
@@ -288,6 +496,7 @@ Continue the lessons-learned extraction conversation with the user.{context}{fin
 
 ## Instructions
 Answer clearly and specifically.
+Prefer correlative explanations that show how evidence was joined across sources.
 If the user asks to revise, filter, expand, or re-rank findings, return updated structured output.
 When you update findings, include EXACTLY {TARGET_FINDINGS} rows.
 
@@ -296,10 +505,11 @@ Prefer this JSON shape when updating the table:
   "reply": "natural language answer",
   "summary": "optional updated summary",
   "actions": ["optional", "actions"],
-  "findings": [{{"rank": 1, "finding": "...", "category": "...", "evidence": "...", "recommendation": "...", "priority": "high|med|low", "sources": ["..."]}}]
+  "findings": [{{"rank": 1, "finding": "...", "category": "...", "evidence": "...", "recommendation": "...", "priority": "high|med|low", "sources": ["..."], "correlation": "..."}}],
+  "reasoning_steps": [{{"id":"r1","label":"...","status":"done","detail":"..."}}]
 }}
 
-If no table update is needed, still return JSON: {{"reply": "..."}}
+If no table update is needed, still return JSON: {{"reply": "...", "reasoning_steps":[...]}}
 """.strip()
 
     result = _converse("lessons_extractor", prompt, conversation_id=body.conversation_id)
@@ -308,6 +518,7 @@ If no table update is needed, still return JSON: {{"reply": "..."}}
     findings = body.findings
     summary = None
     actions = None
+    reasoning = parse_reasoning_steps(result.get("text") or "")
 
     if isinstance(parsed, dict):
         reply = str(parsed.get("reply") or parsed.get("answer") or reply).strip()
@@ -329,4 +540,5 @@ If no table update is needed, still return JSON: {{"reply": "..."}}
         "summary": summary,
         "actions": actions,
         "findings": findings,
+        "reasoning": reasoning,
     }

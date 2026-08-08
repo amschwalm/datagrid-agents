@@ -36,6 +36,7 @@ class AgentResult:
     conversation_id: str | None = None
     error: str | None = None
     cached: bool = False
+    credits_consumed: float | None = None
 
     @property
     def ok(self) -> bool:
@@ -62,6 +63,7 @@ def _execute_call(
             agent_id=call.agent_id,
             text=service.response_text(response),
             conversation_id=getattr(response, "conversation_id", None),
+            credits_consumed=service.response_credits(response),
         )
     except Exception as exc:  # noqa: BLE001 - surface per-agent failures
         return AgentResult(
@@ -129,6 +131,8 @@ def run_parallel(
                             conversation_id=cached.conversation_id,
                             error=cached.error,
                             cached=True,
+                            # Cache hits do not bill again for this run.
+                            credits_consumed=0.0,
                         ),
                     )
                     continue
