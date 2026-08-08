@@ -6,6 +6,7 @@ import { ElapsedClock } from '../components/ElapsedClock'
 import { FindingsTable } from '../components/FindingsTable'
 import { ReasoningSteps } from '../components/ReasoningSteps'
 import {
+  checkApiHealth,
   confirmProject,
   continueLessons,
   discoverProjects,
@@ -83,6 +84,40 @@ export function LessonsFlow() {
     }, 900)
     return () => window.clearInterval(id)
   }, [loading, step])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const health = await checkApiHealth()
+        if (cancelled) return
+        const routes = health.routes || []
+        const missing = [
+          '/api/context/confirm-project',
+          '/api/context/discover-projects',
+        ].filter((route) => !routes.includes(route))
+        if (missing.length) {
+          setError(
+            `API is running but missing routes: ${missing.join(', ')}. ` +
+              'In Terminal 1: lsof -ti:8000 | xargs kill -9 ; then from ~/Desktop/lessons-learned on main run ' +
+              'source .venv/bin/activate && python -m uvicorn server.app:app --reload --port 8000',
+          )
+          setPassLine('Stale API server — kill port 8000 and restart uvicorn from main')
+        }
+      } catch (err) {
+        if (cancelled) return
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'API not reachable on port 8000 — start uvicorn first',
+        )
+        setPassLine('API not reachable on http://127.0.0.1:8000')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function collected(): QAItem[] {
     return questions.map((question, index) => ({

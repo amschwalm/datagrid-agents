@@ -52,7 +52,7 @@ from server.lessons_pipeline import (  # noqa: E402
     run_multipass_extraction,
 )
 
-app = FastAPI(title="Lessons Learned", version="0.5.0")
+app = FastAPI(title="Lessons Learned", version="0.5.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

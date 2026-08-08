@@ -114,15 +114,32 @@ function apiUrl(path: string): string {
 
 async function request<T>(path: string, body: unknown): Promise<T> {
   const url = apiUrl(path)
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    throw new Error(
+      `Could not reach API at ${url}. Start uvicorn on port 8000 first. (${
+        err instanceof Error ? err.message : 'network error'
+      })`,
+    )
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     const detail = data.detail || data.error || `Request failed (${res.status})`
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    const detailText = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    if (res.status === 404) {
+      throw new Error(
+        `API route missing (${detailText}) at ${url}. ` +
+          'Kill the old server (lsof -ti:8000 | xargs kill -9), git checkout main && git pull, then: ' +
+          'source .venv/bin/activate && python -m uvicorn server.app:app --reload --port 8000',
+      )
+    }
+    throw new Error(`${detailText} [${res.status} ${url}]`)
   }
   return data as T
 }
@@ -140,10 +157,20 @@ export async function checkApiHealth(): Promise<{
   version?: string
   routes?: string[]
 }> {
-  const res = await fetch(apiUrl('/api/health'))
+  const url = apiUrl('/api/health')
+  let res: Response
+  try {
+    res = await fetch(url)
+  } catch (err) {
+    throw new Error(
+      `API not reachable at ${url}. In Terminal 1 run: ` +
+        `source .venv/bin/activate && python -m uvicorn server.app:app --reload --port 8000 ` +
+        `(${err instanceof Error ? err.message : 'network error'})`,
+    )
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(`API health failed (${res.status}) at ${apiUrl('/api/health')}`)
+    throw new Error(`API health failed (${res.status}) at ${url}`)
   }
   return data
 }
