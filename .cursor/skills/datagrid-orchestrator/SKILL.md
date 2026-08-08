@@ -79,9 +79,11 @@ python .cursor/skills/datagrid-orchestrator/scripts/run_workflow.py \
 
 - Do **not** recreate Datagrid agents from Cursor unless the user asks; IDs live in `src/datagrid_agents/orchestrator/agents.yaml`.
 - Prefer role keys (`mentor`, `schedule`, `change_order`) over hardcoding UUIDs in chat.
-- Cap parallelism (`--max-workers`, default 3).
+- Cap parallelism/budgets: `--max-workers`, `--timeout`, `--max-calls` (or env `DATAGRID_ORCH_*`).
+- Result cache is on by default (`.orchestrator/cache`); use `--no-cache` to bypass.
+- Risk/checklist register is written by default to `.orchestrator/registers/`; use `--no-register` to skip.
 - Never print API keys.
-- For expensive runs, prefer saving artifacts (`orchestrate` does this by default).
+- For expensive runs, prefer saving artifacts (`orchestrate` / `compose` do this by default).
 
 ## References
 

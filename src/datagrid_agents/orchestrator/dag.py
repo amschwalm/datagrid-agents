@@ -207,7 +207,11 @@ def execute_plan(
     plan: DagPlan,
     *,
     context: str = "",
-    max_workers: int = 3,
+    max_workers: int | None = None,
+    timeout_seconds: float | None = None,
+    max_calls: int | None = None,
+    continue_conversations: bool = True,
+    cache: bool = True,
     converse: Callable[[AgentCall], Any] | None = None,
 ) -> tuple[list[AgentResult], list[dict[str, Any]]]:
     """Execute a validated DAG; return flat results plus stage summaries."""
@@ -215,6 +219,7 @@ def execute_plan(
     stage_outputs: dict[str, list[AgentResult]] = {}
     all_results: list[AgentResult] = []
     stage_summaries: list[dict[str, Any]] = []
+    conversation_by_agent: dict[str, str] = {}
 
     for stage in order_stages(plan):
         prior_chunks: list[str] = []
@@ -235,6 +240,11 @@ def execute_plan(
                     if call.repeats == 1
                     else f"{stage.id}:{call.role}#{pass_index}"
                 )
+                conversation_id = (
+                    conversation_by_agent.get(role.id)
+                    if continue_conversations
+                    else None
+                )
                 calls.append(
                     AgentCall(
                         role=label,
@@ -249,10 +259,21 @@ def execute_plan(
                             prior_text=prior_text,
                         ),
                         chat_mode=call.chat_mode or role.chat_mode,
+                        conversation_id=conversation_id,
                     )
                 )
 
-        results = run_parallel(calls, max_workers=max_workers, converse=converse)
+        results = run_parallel(
+            calls,
+            max_workers=max_workers,
+            timeout_seconds=timeout_seconds,
+            max_calls=max_calls,
+            cache=cache,
+            converse=converse,
+        )
+        for result in results:
+            if result.ok and result.conversation_id:
+                conversation_by_agent[result.agent_id] = result.conversation_id
         stage_outputs[stage.id] = results
         all_results.extend(results)
         stage_summaries.append(
@@ -263,6 +284,7 @@ def execute_plan(
                 "calls": len(calls),
                 "ok": all(r.ok for r in results),
                 "roles": [r.role for r in results],
+                "cached": sum(1 for r in results if r.cached),
             }
         )
 

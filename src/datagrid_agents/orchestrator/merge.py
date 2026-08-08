@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from datagrid_agents.orchestrator.parallel import AgentResult
+from datagrid_agents.orchestrator.synthesize import Synthesis, synthesize_results
 
 
 @dataclass
@@ -22,6 +23,9 @@ class OrchestratorRun:
     ok: bool = True
     plan: dict[str, Any] | None = None
     stages: list[dict[str, Any]] = field(default_factory=list)
+    synthesis: dict[str, Any] | None = None
+    register_markdown: str = ""
+    artifact_paths: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -36,6 +40,7 @@ def merge_results(
     title: str | None = None,
     plan: dict[str, Any] | None = None,
     stages: list[dict[str, Any]] | None = None,
+    synthesize: bool = True,
 ) -> OrchestratorRun:
     """Combine agent answers into markdown + JSON-friendly payload."""
     created_at = datetime.now(timezone.utc).isoformat()
@@ -74,11 +79,30 @@ def merge_results(
         sections.extend(["## Stage execution", ""])
         for stage in stages:
             status = "ok" if stage.get("ok") else "failed"
+            cached = stage.get("cached")
+            cache_note = f"; cached={cached}" if cached else ""
             sections.append(
                 f"- `{stage.get('id')}` {status}; roles: "
                 + ", ".join(stage.get("roles") or [])
+                + cache_note
             )
         sections.append("")
+
+    synthesis_obj: Synthesis | None = None
+    register_markdown = ""
+    if synthesize:
+        synthesis_obj = synthesize_results(
+            results, prompt=prompt, workflow=workflow
+        )
+        register_markdown = synthesis_obj.markdown
+        sections.extend(
+            [
+                "## Synthesized register",
+                "",
+                f"{len(synthesis_obj.items)} deduped items extracted from agent tables.",
+                "",
+            ]
+        )
 
     if context.strip():
         sections.extend(
@@ -101,11 +125,14 @@ def merge_results(
                 "conversation_id": result.conversation_id,
                 "error": result.error,
                 "text": result.text,
+                "cached": result.cached,
             }
         )
         sections.append(f"## Agent: {result.role}")
         sections.append("")
         sections.append(f"- agent_id: `{result.agent_id}`")
+        if result.cached:
+            sections.append("- cache: hit")
         if result.conversation_id:
             sections.append(f"- conversation_id: `{result.conversation_id}`")
         if result.error:
@@ -122,7 +149,7 @@ def merge_results(
             "## Orchestrator notes",
             "",
             "- Datagrid agents supplied domain judgment / knowledge search.",
-            "- Cursor owns parallelism, local code context, DAG composition, and follow-on repo operations.",
+            "- Cursor owns parallelism, budgets/cache, local code context, DAG composition, synthesis, and follow-on repo operations.",
             "",
         ]
     )
@@ -137,4 +164,6 @@ def merge_results(
         ok=ok,
         plan=plan,
         stages=list(stages or []),
+        synthesis=synthesis_obj.to_dict() if synthesis_obj else None,
+        register_markdown=register_markdown,
     )

@@ -83,6 +83,12 @@ datagrid-agents compose --dag ./plan.json
 
 Named playbooks fan out parallel Datagrid converse calls, attach local file context, run lightweight local differential checks where relevant, and write artifacts under `.orchestrator/runs/`. `compose` builds a multi-stage DAG from natural language (heuristic and/or LLM planner).
 
+Hardening defaults:
+- budgets via `--max-workers` / `--timeout` / `--max-calls` (or `DATAGRID_ORCH_*` env)
+- converse result cache in `.orchestrator/cache` (`--no-cache` to disable)
+- synthesized risk/checklist register in `.orchestrator/registers/` (`--no-register` to skip)
+- compose can continue `conversation_id` across stages for the same agent
+
 Cursor skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
 
 Role IDs live in `src/datagrid_agents/orchestrator/agents.yaml` (override with `DATAGRID_AGENT_<ROLE>`).

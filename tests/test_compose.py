@@ -79,7 +79,12 @@ def test_execute_plan_passes_prior_outputs():
             ),
         ],
     )
-    results, summaries = execute_plan(plan, converse=fake_converse, max_workers=2)
+    results, summaries = execute_plan(
+        plan,
+        converse=fake_converse,
+        max_workers=2,
+        cache=False,
+    )
     assert len(results) == 2
     assert [s["id"] for s in summaries] == ["gather", "synth"]
     assert any("Prior stage outputs" in p for p in seen_prompts)
@@ -186,8 +191,12 @@ def test_cli_compose_with_dag_file(tmp_path: Path, monkeypatch, capsys):
 
     monkeypatch.setattr(
         "datagrid_agents.orchestrator.dag.run_parallel",
-        lambda calls, max_workers=3, converse=None: run_parallel(
-            calls, max_workers=max_workers, converse=fake_converse
+        lambda calls, max_workers=None, converse=None, **kwargs: run_parallel(
+            calls,
+            max_workers=max_workers,
+            converse=fake_converse,
+            cache=False,
+            **{k: v for k, v in kwargs.items() if k != "cache"},
         ),
     )
     code = main(
@@ -196,6 +205,8 @@ def test_cli_compose_with_dag_file(tmp_path: Path, monkeypatch, capsys):
             "--dag",
             str(path),
             "--no-save",
+            "--no-register",
+            "--no-cache",
             "--json",
         ]
     )

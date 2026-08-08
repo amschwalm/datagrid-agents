@@ -5,6 +5,7 @@ from datagrid_agents.orchestrator.dag import DagPlan
 from datagrid_agents.orchestrator.parallel import AgentCall, AgentResult, run_parallel
 from datagrid_agents.orchestrator.registry import AgentRole, list_roles, load_role
 from datagrid_agents.orchestrator.runner import list_workflows, run_compose, run_workflow
+from datagrid_agents.orchestrator.synthesize import synthesize_results
 
 __all__ = [
     "AgentCall",
@@ -18,4 +19,5 @@ __all__ = [
     "run_compose",
     "run_parallel",
     "run_workflow",
+    "synthesize_results",
 ]

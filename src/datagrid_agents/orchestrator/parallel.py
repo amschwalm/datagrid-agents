@@ -1,12 +1,15 @@
-"""Parallel Datagrid converse calls."""
+"""Parallel Datagrid converse calls with budgets, timeouts, and cache."""
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import as_completed
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from datagrid_agents import service
+from datagrid_agents.orchestrator.budget import OrchestratorBudget
+from datagrid_agents.orchestrator.cache import ResultCache
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,7 @@ class AgentResult:
     text: str
     conversation_id: str | None = None
     error: str | None = None
+    cached: bool = False
 
     @property
     def ok(self) -> bool:
@@ -68,21 +72,83 @@ def _execute_call(
 def run_parallel(
     calls: list[AgentCall],
     *,
-    max_workers: int = 3,
+    max_workers: int | None = None,
+    timeout_seconds: float | None = None,
+    max_calls: int | None = None,
+    budget: OrchestratorBudget | None = None,
+    cache: ResultCache | bool | None = True,
     converse: Callable[[AgentCall], Any] | None = None,
 ) -> list[AgentResult]:
     """Run Datagrid agent calls concurrently; preserve input order in results."""
     if not calls:
         return []
+
+    base = budget or OrchestratorBudget.from_env()
+    workers = base.max_workers if max_workers is None else max_workers
+    timeout = base.timeout_seconds if timeout_seconds is None else timeout_seconds
+    call_budget = base.max_calls if max_calls is None else max_calls
+
+    if len(calls) > call_budget:
+        raise ValueError(
+            f"refusing to run {len(calls)} calls; max_calls budget is {call_budget}"
+        )
+
+    result_cache: ResultCache | None
+    if cache is False or cache is None:
+        result_cache = None
+    elif cache is True:
+        result_cache = ResultCache()
+    else:
+        result_cache = cache
+
     worker = converse or _default_converse
-    workers = max(1, min(max_workers, len(calls)))
+    workers = max(1, min(workers, len(calls)))
     results: dict[int, AgentResult] = {}
+    pending: dict[Any, int] = {}
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(_execute_call, call, worker): index
-            for index, call in enumerate(calls)
-        }
-        for future in as_completed(futures):
-            index = futures[future]
-            results[index] = future.result()
+        for index, call in enumerate(calls):
+            if result_cache is not None:
+                cached = result_cache.get(call)
+                if cached is not None:
+                    results[index] = AgentResult(
+                        role=call.role,
+                        agent_id=cached.agent_id,
+                        text=cached.text,
+                        conversation_id=cached.conversation_id,
+                        error=cached.error,
+                        cached=True,
+                    )
+                    continue
+            future = pool.submit(_execute_call, call, worker)
+            pending[future] = index
+
+        try:
+            for future in as_completed(pending, timeout=timeout if pending else None):
+                index = pending[future]
+                try:
+                    result = future.result(timeout=0)
+                except FuturesTimeoutError:
+                    result = AgentResult(
+                        role=calls[index].role,
+                        agent_id=calls[index].agent_id,
+                        text="",
+                        error=f"TimeoutError: call exceeded {timeout}s",
+                    )
+                results[index] = result
+                if result_cache is not None and result.ok:
+                    result_cache.put(calls[index], result)
+        except FuturesTimeoutError:
+            # Overall wait timed out: mark unfinished futures.
+            for future, index in pending.items():
+                if index in results:
+                    continue
+                future.cancel()
+                results[index] = AgentResult(
+                    role=calls[index].role,
+                    agent_id=calls[index].agent_id,
+                    text="",
+                    error=f"TimeoutError: stage exceeded {timeout}s",
+                )
+
     return [results[i] for i in range(len(calls))]

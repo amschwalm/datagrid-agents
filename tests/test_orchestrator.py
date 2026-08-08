@@ -220,8 +220,12 @@ def test_cli_orchestrate_json(tmp_path: Path, monkeypatch, capsys):
 
     monkeypatch.setattr(
         "datagrid_agents.orchestrator.runner.run_parallel",
-        lambda calls, max_workers=3, converse=None: run_parallel(
-            calls, max_workers=max_workers, converse=fake_converse
+        lambda calls, max_workers=None, converse=None, **kwargs: run_parallel(
+            calls,
+            max_workers=max_workers,
+            converse=fake_converse,
+            cache=False,
+            **{k: v for k, v in kwargs.items() if k != "cache"},
         ),
     )
     code = main(
@@ -231,6 +235,8 @@ def test_cli_orchestrate_json(tmp_path: Path, monkeypatch, capsys):
             "-p",
             "risks please",
             "--no-save",
+            "--no-register",
+            "--no-cache",
             "--json",
         ]
     )
@@ -249,8 +255,12 @@ def test_cli_fanout_roles(monkeypatch, capsys):
 
     monkeypatch.setattr(
         "datagrid_agents.orchestrator.runner.run_parallel",
-        lambda calls, max_workers=3, converse=None: run_parallel(
-            calls, max_workers=max_workers, converse=fake_converse
+        lambda calls, max_workers=None, converse=None, **kwargs: run_parallel(
+            calls,
+            max_workers=max_workers,
+            converse=fake_converse,
+            cache=False,
+            **{k: v for k, v in kwargs.items() if k != "cache"},
         ),
     )
     code = main(
@@ -264,6 +274,8 @@ def test_cli_fanout_roles(monkeypatch, capsys):
             "-p",
             "multi",
             "--no-save",
+            "--no-register",
+            "--no-cache",
             "--json",
         ]
     )

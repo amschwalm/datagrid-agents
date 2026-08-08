@@ -127,6 +127,11 @@ def cmd_orchestrate(args: argparse.Namespace) -> int:
         roles=roles,
         repeats=args.repeat,
         max_workers=args.max_workers,
+        timeout_seconds=args.timeout,
+        max_calls=args.max_calls,
+        cache=not args.no_cache,
+        write_register=not args.no_register,
+        register_dir=None if args.no_register else Path(args.register_dir),
         runs_dir=None if args.no_save else Path(args.runs_dir),
     )
     if args.json:
@@ -158,6 +163,12 @@ def cmd_compose(args: argparse.Namespace) -> int:
         plan=plan,
         plan_only=args.plan_only,
         max_workers=args.max_workers,
+        timeout_seconds=args.timeout,
+        max_calls=args.max_calls,
+        continue_conversations=not args.no_continue,
+        cache=not args.no_cache,
+        write_register=not args.no_register,
+        register_dir=None if args.no_register else Path(args.register_dir),
         runs_dir=None if args.no_save else Path(args.runs_dir),
     )
     if args.json:
@@ -302,27 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="For fanout: call each role N times with distinct pass angles (default: 1)",
     )
-    p_orch.add_argument(
-        "--max-workers",
-        type=int,
-        default=3,
-        help="Max parallel Datagrid calls (default: 3)",
-    )
-    p_orch.add_argument(
-        "--runs-dir",
-        default=".orchestrator/runs",
-        help="Directory for run artifacts (default: .orchestrator/runs)",
-    )
-    p_orch.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Do not write run artifacts to disk",
-    )
-    p_orch.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit JSON instead of markdown",
-    )
+    _add_runtime_flags(p_orch)
     p_orch.set_defaults(func=cmd_orchestrate)
 
     p_compose = sub.add_parser(
@@ -364,29 +355,65 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print/save the composed plan without calling specialty agents",
     )
     p_compose.add_argument(
+        "--no-continue",
+        action="store_true",
+        help="Do not reuse conversation_id across stages for the same agent",
+    )
+    _add_runtime_flags(p_compose)
+    p_compose.set_defaults(func=cmd_compose)
+
+    return parser
+
+
+def _add_runtime_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--max-workers",
         type=int,
-        default=3,
-        help="Max parallel Datagrid calls per stage (default: 3)",
+        default=None,
+        help="Max parallel Datagrid calls (default: env/budget, usually 3)",
     )
-    p_compose.add_argument(
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Per-stage timeout seconds (default: env/budget, usually 120)",
+    )
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=None,
+        help="Max Datagrid calls in one fan-out/stage (default: env/budget, usually 12)",
+    )
+    parser.add_argument(
         "--runs-dir",
         default=".orchestrator/runs",
         help="Directory for run artifacts (default: .orchestrator/runs)",
     )
-    p_compose.add_argument(
+    parser.add_argument(
+        "--register-dir",
+        default=".orchestrator/registers",
+        help="Directory for risk-register markdown (default: .orchestrator/registers)",
+    )
+    parser.add_argument(
         "--no-save",
         action="store_true",
         help="Do not write run artifacts to disk",
     )
-    p_compose.add_argument(
+    parser.add_argument(
+        "--no-register",
+        action="store_true",
+        help="Skip synthesized risk/checklist register output",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable converse result cache",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit JSON instead of markdown",
     )
-    p_compose.set_defaults(func=cmd_compose)
-
-    return parser
 
 
 def main(argv: list[str] | None = None) -> int:

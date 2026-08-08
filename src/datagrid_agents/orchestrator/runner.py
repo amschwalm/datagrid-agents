@@ -21,6 +21,7 @@ from datagrid_agents.orchestrator.workflows import (
 )
 
 DEFAULT_RUNS_DIR = Path.cwd() / ".orchestrator" / "runs"
+DEFAULT_REGISTER_DIR = Path.cwd() / ".orchestrator" / "registers"
 
 
 def list_workflows() -> list[str]:
@@ -35,7 +36,12 @@ def run_workflow(
     context_paths: list[Path | str] | None = None,
     roles: list[str] | None = None,
     repeats: int = 1,
-    max_workers: int = 3,
+    max_workers: int | None = None,
+    timeout_seconds: float | None = None,
+    max_calls: int | None = None,
+    cache: bool = True,
+    write_register: bool = True,
+    register_dir: Path | None = DEFAULT_REGISTER_DIR,
     runs_dir: Path | None = DEFAULT_RUNS_DIR,
     converse: Callable[[AgentCall], Any] | None = None,
 ) -> OrchestratorRun:
@@ -53,7 +59,12 @@ def run_workflow(
     builder = get_workflow_builder(name)
     calls = builder(prompt, context)
     results: list[AgentResult] = run_parallel(
-        calls, max_workers=max_workers, converse=converse
+        calls,
+        max_workers=max_workers,
+        timeout_seconds=timeout_seconds,
+        max_calls=max_calls,
+        cache=cache,
+        converse=converse,
     )
     run = merge_results(
         workflow=name,
@@ -61,10 +72,14 @@ def run_workflow(
         results=results,
         context=context,
         title=f"Orchestrator: {name}",
+        synthesize=write_register,
     )
-    if runs_dir is not None:
-        _persist_run(run, Path(runs_dir))
-    return run
+    return _finalize_run(
+        run,
+        runs_dir=runs_dir,
+        write_register=write_register,
+        register_dir=register_dir,
+    )
 
 
 def run_compose(
@@ -75,7 +90,13 @@ def run_compose(
     planner_role: str = "mentor",
     plan: DagPlan | dict[str, Any] | None = None,
     plan_only: bool = False,
-    max_workers: int = 3,
+    max_workers: int | None = None,
+    timeout_seconds: float | None = None,
+    max_calls: int | None = None,
+    continue_conversations: bool = True,
+    cache: bool = True,
+    write_register: bool = True,
+    register_dir: Path | None = DEFAULT_REGISTER_DIR,
     runs_dir: Path | None = DEFAULT_RUNS_DIR,
     converse: Callable[[AgentCall], Any] | None = None,
 ) -> OrchestratorRun:
@@ -107,12 +128,15 @@ def run_compose(
             plan=dag.to_dict(),
             stages=[],
         )
-        if runs_dir is not None:
-            _persist_run(run, Path(runs_dir), suffix="plan")
-        return run
+        return _finalize_run(
+            run,
+            runs_dir=runs_dir,
+            write_register=False,
+            register_dir=register_dir,
+            suffix="plan",
+        )
 
     context = gather_context(context_paths)
-    # Open-ended compose benefits from the same attachment coverage signal.
     analysis = analyze_attachment_coverage(dag.goal or prompt, context_paths)
     if analysis.strip():
         context = (analysis + "\n" + context).strip()
@@ -121,6 +145,10 @@ def run_compose(
         dag,
         context=context,
         max_workers=max_workers,
+        timeout_seconds=timeout_seconds,
+        max_calls=max_calls,
+        continue_conversations=continue_conversations,
+        cache=cache,
         converse=converse,
     )
     run = merge_results(
@@ -131,9 +159,49 @@ def run_compose(
         title="Orchestrator: compose",
         plan=dag.to_dict(),
         stages=stage_summaries,
+        synthesize=write_register,
     )
+    return _finalize_run(
+        run,
+        runs_dir=runs_dir,
+        write_register=write_register,
+        register_dir=register_dir,
+    )
+
+
+def _finalize_run(
+    run: OrchestratorRun,
+    *,
+    runs_dir: Path | None,
+    write_register: bool,
+    register_dir: Path | None,
+    suffix: str | None = None,
+) -> OrchestratorRun:
+    stamp = _stamp(run.created_at)
+    name = run.workflow if not suffix else f"{run.workflow}_{suffix}"
+    planned: list[Path] = []
     if runs_dir is not None:
-        _persist_run(run, Path(runs_dir))
+        base = Path(runs_dir) / f"{stamp}_{name}"
+        planned.extend([base.with_suffix(".json"), base.with_suffix(".md")])
+    register_path: Path | None = None
+    if write_register and run.register_markdown and register_dir is not None:
+        register_path = Path(register_dir) / f"{stamp}_{run.workflow}_risk_register.md"
+        planned.append(register_path)
+
+    run.artifact_paths = [str(path) for path in planned]
+    if planned:
+        run.markdown = (
+            run.markdown.rstrip()
+            + "\n\n## Artifacts\n\n"
+            + "\n".join(f"- `{path}`" for path in run.artifact_paths)
+            + "\n"
+        )
+
+    if runs_dir is not None:
+        _persist_run(run, Path(runs_dir), suffix=suffix)
+    if register_path is not None:
+        register_path.parent.mkdir(parents=True, exist_ok=True)
+        register_path.write_text(run.register_markdown, encoding="utf-8")
     return run
 
 
@@ -165,18 +233,22 @@ def _persist_run(
     runs_dir: Path,
     *,
     suffix: str | None = None,
-) -> Path:
+) -> list[Path]:
     runs_dir.mkdir(parents=True, exist_ok=True)
-    stamp = (
-        run.created_at.replace("+00:00", "Z")
-        .replace("+0000", "Z")
-        .replace(":", "")
-        .replace(".", "-")
-    )
+    stamp = _stamp(run.created_at)
     name = run.workflow if not suffix else f"{run.workflow}_{suffix}"
     base = runs_dir / f"{stamp}_{name}"
     json_path = base.with_suffix(".json")
     md_path = base.with_suffix(".md")
     json_path.write_text(json.dumps(run.to_dict(), indent=2) + "\n", encoding="utf-8")
     md_path.write_text(run.markdown, encoding="utf-8")
-    return json_path
+    return [json_path, md_path]
+
+
+def _stamp(created_at: str) -> str:
+    return (
+        created_at.replace("+00:00", "Z")
+        .replace("+0000", "Z")
+        .replace(":", "")
+        .replace(".", "-")
+    )
