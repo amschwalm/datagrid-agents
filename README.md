@@ -23,10 +23,10 @@ Optional: set `CONSTRUCTION_KNOWLEDGE_IDS` to a comma-separated list of Datagrid
 
 ## Construction Lessons Learned web app
 
-Monochrome survey UI for:
+Monochrome interview UI for:
 
-1. **Lessons learned extractor** — profile + project wrap-up survey → Datagrid Lessons Learned Extractor
-2. **Construction mentor** — short intake + prompt + follow-ups → Mentor Agent, then Lessons Extractor as a second-agent evidence pass
+1. **Lessons learned extractor** — open prompt → dynamic follow-ups → Datagrid Lessons Learned Extractor
+2. **Construction mentor** — open prompt → dynamic follow-ups → Mentor Agent, then Lessons Extractor as evidence support
 
 ```bash
 # terminal 1 — API

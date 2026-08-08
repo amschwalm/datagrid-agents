@@ -1,5 +1,4 @@
-export type SurveyAnswer = {
-  id: string
+export type QAItem = {
   question: string
   answer: string
 }
@@ -25,17 +24,29 @@ export type AgentResult = {
   conversation_id?: string | null
 }
 
+export function generateFollowups(payload: {
+  mode: 'lessons' | 'mentor'
+  prompt: string
+  prior?: QAItem[]
+}) {
+  return request<{
+    ok: boolean
+    mode: 'lessons' | 'mentor'
+    questions: string[]
+    used_fallback: boolean
+  }>('/api/context/followups', payload)
+}
+
 export function extractLessons(payload: {
-  profile: Record<string, string>
-  answers: SurveyAnswer[]
+  prompt: string
+  answers: QAItem[]
 }) {
   return request<{ ok: boolean; result: AgentResult }>('/api/lessons/extract', payload)
 }
 
 export function startMentor(payload: {
-  profile: Record<string, string>
   prompt: string
-  followups: SurveyAnswer[]
+  followups: QAItem[]
 }) {
   return request<{ ok: boolean; mentor: AgentResult; helper: AgentResult }>(
     '/api/mentor/session',
@@ -47,7 +58,7 @@ export function continueMentor(payload: {
   conversation_id?: string | null
   helper_conversation_id?: string | null
   message: string
-  profile: Record<string, string>
+  prompt?: string
 }) {
   return request<{ ok: boolean; mentor: AgentResult; helper: AgentResult }>(
     '/api/mentor/continue',

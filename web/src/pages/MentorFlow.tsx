@@ -1,47 +1,87 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { SurveyFields, fieldsComplete } from '../components/SurveyFields'
-import { mentorFollowups, mentorProfileFields } from '../data/surveys'
 import {
   continueMentor,
+  generateFollowups,
   startMentor,
   type AgentResult,
+  type QAItem,
 } from '../lib/api'
 
-type Step = 'profile' | 'prompt' | 'followups' | 'session'
+type Step = 'prompt' | 'questions' | 'session'
 
 export function MentorFlow() {
-  const [step, setStep] = useState<Step>('profile')
-  const [profile, setProfile] = useState<Record<string, string>>({})
+  const [step, setStep] = useState<Step>('prompt')
   const [prompt, setPrompt] = useState('')
-  const [followups, setFollowups] = useState<Record<string, string>>({})
-  const [fIndex, setFIndex] = useState(0)
+  const [questions, setQuestions] = useState<string[]>([])
+  const [answers, setAnswers] = useState<string[]>([])
+  const [qIndex, setQIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [mentor, setMentor] = useState<AgentResult | null>(null)
   const [helper, setHelper] = useState<AgentResult | null>(null)
   const [message, setMessage] = useState('')
 
-  const followup = mentorFollowups[fIndex]
   const progress = useMemo(() => {
-    if (step === 'profile') return 12
-    if (step === 'prompt') return 30
+    if (step === 'prompt') return 12
     if (step === 'session') return 100
-    return 45 + Math.round(((fIndex + 1) / mentorFollowups.length) * 40)
-  }, [step, fIndex])
+    if (!questions.length) return 35
+    return 30 + Math.round(((qIndex + 1) / questions.length) * 55)
+  }, [step, qIndex, questions.length])
+
+  function collected(): QAItem[] {
+    return questions.map((question, index) => ({
+      question,
+      answer: answers[index] || '',
+    }))
+  }
+
+  async function startInterview() {
+    if (!prompt.trim()) return
+    setLoading(true)
+    setError('')
+    try {
+      const data = await generateFollowups({
+        mode: 'mentor',
+        prompt: prompt.trim(),
+      })
+      setQuestions(data.questions)
+      setAnswers(data.questions.map(() => ''))
+      setQIndex(0)
+      setStep('questions')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate follow-ups')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function digDeeper() {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await generateFollowups({
+        mode: 'mentor',
+        prompt: prompt.trim(),
+        prior: collected(),
+      })
+      setQuestions((prev) => [...prev, ...data.questions])
+      setAnswers((prev) => [...prev, ...data.questions.map(() => '')])
+      setQIndex(questions.length)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate more follow-ups')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function openSession() {
     setLoading(true)
     setError('')
     try {
       const data = await startMentor({
-        profile,
-        prompt,
-        followups: mentorFollowups.map((field) => ({
-          id: field.id,
-          question: field.label,
-          answer: followups[field.id] || '',
-        })),
+        prompt: prompt.trim(),
+        followups: collected(),
       })
       setMentor(data.mentor)
       setHelper(data.helper)
@@ -62,7 +102,7 @@ export function MentorFlow() {
         conversation_id: mentor.conversation_id,
         helper_conversation_id: helper?.conversation_id,
         message,
-        profile,
+        prompt: prompt.trim(),
       })
       setMentor(data.mentor)
       setHelper(data.helper)
@@ -74,6 +114,10 @@ export function MentorFlow() {
     }
   }
 
+  const currentQuestion = questions[qIndex]
+  const currentAnswer = answers[qIndex] || ''
+  const onLastQuestion = qIndex === questions.length - 1
+
   return (
     <main className="page">
       <section className="panel">
@@ -82,118 +126,103 @@ export function MentorFlow() {
           <span style={{ width: `${progress}%` }} />
         </div>
 
-        {step === 'profile' && (
+        {step === 'prompt' && (
           <>
-            <h2>Who are you?</h2>
+            <h2>Tell me about something</h2>
             <p className="sub">
-              A short intake so the mentor answers in your lane — then a second
-              agent brings lessons evidence.
+              Start with the live problem or decision. We’ll ask follow-ups to
+              sharpen context, then bring in the mentor and lessons support.
             </p>
-            <SurveyFields
-              fields={mentorProfileFields}
-              values={profile}
-              onChange={(id, value) =>
-                setProfile((prev) => ({ ...prev, [id]: value }))
-              }
-            />
+            <div className="field">
+              <label htmlFor="prompt">Opening statement</label>
+              <textarea
+                id="prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Tell me about buying out the electrical utility package and the risks I’m missing…"
+              />
+            </div>
             <div className="actions">
               <Link className="btn" to="/">
                 Back
               </Link>
               <button
                 className="btn btn-primary"
-                disabled={!fieldsComplete(mentorProfileFields, profile)}
-                onClick={() => setStep('prompt')}
+                disabled={loading || !prompt.trim()}
+                onClick={startInterview}
               >
-                Continue
+                {loading ? 'Building follow-ups…' : 'Continue'}
               </button>
             </div>
-          </>
-        )}
-
-        {step === 'prompt' && (
-          <>
-            <h2>What’s the problem?</h2>
-            <p className="sub">
-              One clear ask. The follow-ups will sharpen stakes, constraints,
-              and what’s already been tried.
+            <p className="status-line">
+              {loading ? 'Generating interview questions…' : ''}
             </p>
-            <div className="field">
-              <label htmlFor="prompt">Initial prompt</label>
-              <textarea
-                id="prompt"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="I’m buying out the electrical utility package and need the five risks that usually hurt us…"
-              />
-            </div>
-            <div className="actions">
-              <button className="btn" onClick={() => setStep('profile')}>
-                Back
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={!prompt.trim()}
-                onClick={() => setStep('followups')}
-              >
-                Continue
-              </button>
-            </div>
+            {error && <p className="error">{error}</p>}
           </>
         )}
 
-        {step === 'followups' && followup && (
+        {step === 'questions' && currentQuestion && (
           <>
             <h2>Sharpen the ask</h2>
             <p className="sub">
-              Follow-up {fIndex + 1} of {mentorFollowups.length}.
+              Question {qIndex + 1} of {questions.length}. The more specific you
+              are, the sharper the mentoring.
             </p>
-            <p className="question-title">{followup.label}</p>
+            <p className="question-title">{currentQuestion}</p>
             <div className="field">
-              <label htmlFor={followup.id}>Your answer</label>
+              <label htmlFor="answer">Your answer</label>
               <textarea
-                id={followup.id}
-                value={followups[followup.id] || ''}
+                id="answer"
+                value={currentAnswer}
                 onChange={(e) =>
-                  setFollowups((prev) => ({
-                    ...prev,
-                    [followup.id]: e.target.value,
-                  }))
+                  setAnswers((prev) => {
+                    const next = [...prev]
+                    next[qIndex] = e.target.value
+                    return next
+                  })
                 }
               />
             </div>
             <div className="actions">
               <button
                 className="btn"
+                disabled={loading}
                 onClick={() => {
-                  if (fIndex === 0) setStep('prompt')
-                  else setFIndex((i) => i - 1)
+                  if (qIndex === 0) setStep('prompt')
+                  else setQIndex((i) => i - 1)
                 }}
               >
                 Back
               </button>
-              {fIndex < mentorFollowups.length - 1 ? (
+              {!onLastQuestion ? (
                 <button
                   className="btn btn-primary"
-                  disabled={!((followups[followup.id] || '').trim())}
-                  onClick={() => setFIndex((i) => i + 1)}
+                  disabled={loading || !currentAnswer.trim()}
+                  onClick={() => setQIndex((i) => i + 1)}
                 >
                   Next
                 </button>
               ) : (
-                <button
-                  className="btn btn-primary"
-                  disabled={
-                    loading || !((followups[followup.id] || '').trim())
-                  }
-                  onClick={openSession}
-                >
-                  {loading ? 'Calling agents…' : 'Start mentor session'}
-                </button>
+                <>
+                  <button
+                    className="btn"
+                    disabled={loading || !currentAnswer.trim()}
+                    onClick={digDeeper}
+                  >
+                    {loading ? 'Asking more…' : 'Dig deeper'}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={loading || !currentAnswer.trim()}
+                    onClick={openSession}
+                  >
+                    {loading ? 'Calling agents…' : 'Start mentor session'}
+                  </button>
+                </>
               )}
             </div>
             <p className="status-line">
-              {loading ? 'Mentor + Lessons Extractor running…' : ''}
+              {loading ? 'Working with Datagrid agents…' : ''}
             </p>
             {error && <p className="error">{error}</p>}
           </>
@@ -230,10 +259,14 @@ export function MentorFlow() {
                 <button
                   className="btn"
                   onClick={() => {
-                    setStep('profile')
+                    setStep('prompt')
                     setMentor(null)
                     setHelper(null)
-                    setFIndex(0)
+                    setQuestions([])
+                    setAnswers([])
+                    setQIndex(0)
+                    setMessage('')
+                    setError('')
                   }}
                 >
                   New session

@@ -1,51 +1,86 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { SurveyFields, fieldsComplete } from '../components/SurveyFields'
 import {
-  lessonsCloseoutQuestions,
-  lessonsProfileFields,
-} from '../data/surveys'
-import { extractLessons, type AgentResult } from '../lib/api'
+  extractLessons,
+  generateFollowups,
+  type AgentResult,
+  type QAItem,
+} from '../lib/api'
 
-type Step = 'profile' | 'questions' | 'result'
+type Step = 'prompt' | 'questions' | 'result'
 
 export function LessonsFlow() {
-  const [step, setStep] = useState<Step>('profile')
-  const [profile, setProfile] = useState<Record<string, string>>({})
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [step, setStep] = useState<Step>('prompt')
+  const [prompt, setPrompt] = useState('')
+  const [questions, setQuestions] = useState<string[]>([])
+  const [answers, setAnswers] = useState<string[]>([])
   const [qIndex, setQIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<AgentResult | null>(null)
 
-  const question = lessonsCloseoutQuestions[qIndex]
   const progress = useMemo(() => {
-    if (step === 'profile') return 8
+    if (step === 'prompt') return 12
     if (step === 'result') return 100
-    return 20 + Math.round(((qIndex + 1) / lessonsCloseoutQuestions.length) * 70)
-  }, [step, qIndex])
+    if (!questions.length) return 35
+    return 30 + Math.round(((qIndex + 1) / questions.length) * 60)
+  }, [step, qIndex, questions.length])
 
-  function setProfileField(id: string, value: string) {
-    setProfile((prev) => ({ ...prev, [id]: value }))
+  function collected(): QAItem[] {
+    return questions.map((question, index) => ({
+      question,
+      answer: answers[index] || '',
+    }))
   }
 
-  function setAnswerField(id: string, value: string) {
-    setAnswers((prev) => ({ ...prev, [id]: value }))
+  async function startInterview() {
+    if (!prompt.trim()) return
+    setLoading(true)
+    setError('')
+    try {
+      const data = await generateFollowups({
+        mode: 'lessons',
+        prompt: prompt.trim(),
+      })
+      setQuestions(data.questions)
+      setAnswers(data.questions.map(() => ''))
+      setQIndex(0)
+      setStep('questions')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate follow-ups')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function digDeeper() {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await generateFollowups({
+        mode: 'lessons',
+        prompt: prompt.trim(),
+        prior: collected(),
+      })
+      const nextQuestions = [...questions, ...data.questions]
+      setQuestions(nextQuestions)
+      setAnswers((prev) => [...prev, ...data.questions.map(() => '')])
+      setQIndex(questions.length)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate more follow-ups')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function runExtract() {
     setLoading(true)
     setError('')
     try {
-      const payload = {
-        profile,
-        answers: lessonsCloseoutQuestions.map((field) => ({
-          id: field.id,
-          question: field.label,
-          answer: answers[field.id] || '',
-        })),
-      }
-      const data = await extractLessons(payload)
+      const data = await extractLessons({
+        prompt: prompt.trim(),
+        answers: collected(),
+      })
       setResult(data.result)
       setStep('result')
     } catch (err) {
@@ -55,6 +90,10 @@ export function LessonsFlow() {
     }
   }
 
+  const currentQuestion = questions[qIndex]
+  const currentAnswer = answers[qIndex] || ''
+  const onLastQuestion = qIndex === questions.length - 1
+
   return (
     <main className="page">
       <section className="panel">
@@ -63,79 +102,105 @@ export function LessonsFlow() {
           <span style={{ width: `${progress}%` }} />
         </div>
 
-        {step === 'profile' && (
+        {step === 'prompt' && (
           <>
-            <h2>Who are you?</h2>
+            <h2>Tell me about something</h2>
             <p className="sub">
-              A short profile so the extractor can ground lessons in role,
-              project type, and delivery method.
+              Start with the project moment, miss, or win you want captured. We’ll
+              ask follow-ups from there, then extract the lessons.
             </p>
-            <SurveyFields
-              fields={lessonsProfileFields}
-              values={profile}
-              onChange={setProfileField}
-            />
+            <div className="field">
+              <label htmlFor="prompt">Opening statement</label>
+              <textarea
+                id="prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Tell me about the utility buyout that slipped late in Phase 2…"
+              />
+            </div>
             <div className="actions">
               <Link className="btn" to="/">
                 Back
               </Link>
               <button
                 className="btn btn-primary"
-                disabled={!fieldsComplete(lessonsProfileFields, profile)}
-                onClick={() => setStep('questions')}
+                disabled={loading || !prompt.trim()}
+                onClick={startInterview}
               >
-                Continue
+                {loading ? 'Building follow-ups…' : 'Continue'}
               </button>
             </div>
+            <p className="status-line">
+              {loading ? 'Generating interview questions…' : ''}
+            </p>
+            {error && <p className="error">{error}</p>}
           </>
         )}
 
-        {step === 'questions' && question && (
+        {step === 'questions' && currentQuestion && (
           <>
-            <h2>Project wrap-up</h2>
+            <h2>A few more details</h2>
             <p className="sub">
-              Question {qIndex + 1} of {lessonsCloseoutQuestions.length}. Be
-              blunt — this becomes archive material.
+              Question {qIndex + 1} of {questions.length}. Answer in plain
+              language — this becomes the archive brief.
             </p>
-            <p className="question-title">{question.label}</p>
+            <p className="question-title">{currentQuestion}</p>
             <div className="field">
-              <label htmlFor={question.id}>Your answer</label>
+              <label htmlFor="answer">Your answer</label>
               <textarea
-                id={question.id}
-                value={answers[question.id] || ''}
-                onChange={(e) => setAnswerField(question.id, e.target.value)}
+                id="answer"
+                value={currentAnswer}
+                onChange={(e) =>
+                  setAnswers((prev) => {
+                    const next = [...prev]
+                    next[qIndex] = e.target.value
+                    return next
+                  })
+                }
                 placeholder="Write in plain language…"
               />
             </div>
             <div className="actions">
               <button
                 className="btn"
+                disabled={loading}
                 onClick={() => {
-                  if (qIndex === 0) setStep('profile')
+                  if (qIndex === 0) setStep('prompt')
                   else setQIndex((i) => i - 1)
                 }}
               >
                 Back
               </button>
-              {qIndex < lessonsCloseoutQuestions.length - 1 ? (
+              {!onLastQuestion ? (
                 <button
                   className="btn btn-primary"
-                  disabled={!((answers[question.id] || '').trim())}
+                  disabled={loading || !currentAnswer.trim()}
                   onClick={() => setQIndex((i) => i + 1)}
                 >
                   Next
                 </button>
               ) : (
-                <button
-                  className="btn btn-primary"
-                  disabled={loading || !((answers[question.id] || '').trim())}
-                  onClick={runExtract}
-                >
-                  {loading ? 'Extracting…' : 'Extract lessons'}
-                </button>
+                <>
+                  <button
+                    className="btn"
+                    disabled={loading || !currentAnswer.trim()}
+                    onClick={digDeeper}
+                  >
+                    {loading ? 'Asking more…' : 'Dig deeper'}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={loading || !currentAnswer.trim()}
+                    onClick={runExtract}
+                  >
+                    {loading ? 'Extracting…' : 'Extract lessons'}
+                  </button>
+                </>
               )}
             </div>
-            <p className="status-line">{loading ? 'Calling Lessons Learned Extractor…' : ''}</p>
+            <p className="status-line">
+              {loading ? 'Working with Datagrid agents…' : ''}
+            </p>
             {error && <p className="error">{error}</p>}
           </>
         )}
@@ -152,9 +217,12 @@ export function LessonsFlow() {
               <button
                 className="btn"
                 onClick={() => {
-                  setStep('profile')
+                  setStep('prompt')
+                  setQuestions([])
+                  setAnswers([])
                   setQIndex(0)
                   setResult(null)
+                  setError('')
                 }}
               >
                 Start over
