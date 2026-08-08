@@ -8,8 +8,10 @@ import { ReasoningSteps } from '../components/ReasoningSteps'
 import {
   confirmProject,
   continueLessons,
+  discoverProjects,
   generateFollowups,
   streamExtractLessons,
+  type AccessibleProject,
   type AgentResult,
   type CreditsUsage,
   type Finding,
@@ -36,6 +38,7 @@ export function LessonsFlow() {
   const [step, setStep] = useState<Step>('project')
   const [project, setProject] = useState('')
   const [confirmation, setConfirmation] = useState<ProjectConfirmResult | null>(null)
+  const [discoveredProjects, setDiscoveredProjects] = useState<AccessibleProject[]>([])
   const [questions, setQuestions] = useState<string[]>([])
   const [answers, setAnswers] = useState<string[]>([])
   const [qIndex, setQIndex] = useState(0)
@@ -96,35 +99,54 @@ export function LessonsFlow() {
     setReasoning((prev) => mergeReasoning(prev, steps))
   }
 
-  async function confirmProjectAccess() {
-    if (!project.trim()) return
+  async function confirmProjectAccess(nameOverride?: string) {
+    const requested = (nameOverride ?? project).trim()
+    if (!requested) return
+    if (nameOverride) setProject(requested)
     setLoading(true)
     setError('')
     setConfirmation(null)
-    setPassLine('Deep searching Datagrid for this project…')
+    setPassLine(`Verifying “${requested}” in Datagrid with Deep Search…`)
     pushLocalSteps([
       {
         id: 'local-ask',
         label: 'Capturing project name',
         status: 'done',
-        detail: project.trim(),
+        detail: requested,
       },
       {
         id: 'local-search',
-        label: 'Asking Deep Search to identify the project in files',
+        label: 'Deep Search verifying project identity in files',
         status: 'running',
         detail: 'Matching your request to project names found in accessible documents…',
       },
     ])
     try {
-      const data = await confirmProject({ project: project.trim() })
+      const data = await confirmProject({ project: requested })
       setConfirmation(data)
+      if (data.accessible_projects?.length) {
+        setDiscoveredProjects(data.accessible_projects)
+      }
       setReasoning((prev) => mergeReasoning(prev, data.reasoning || []))
       if (data.matched) {
-        const kind = data.match_kind === 'fuzzy' ? 'Fuzzy match' : 'Exact match'
-        setPassLine(`${kind}: ${data.project_name || data.knowledge_name}`)
+        const kind = data.match_kind === 'fuzzy' ? 'Fuzzy match' : 'Verified exact match'
+        const canonical = data.project_name || data.knowledge_name || requested
+        setProject(canonical)
+        setPassLine(`${kind}: ${canonical}`)
+        upsertStep({
+          id: 'local-search',
+          label: `${kind} via Deep Search`,
+          status: 'done',
+          detail: data.rationale || canonical,
+        })
       } else {
-        setPassLine('No project match in accessible Datagrid data')
+        setPassLine('Not verified — project not found in accessible Datagrid data')
+        upsertStep({
+          id: 'local-search',
+          label: 'Verification failed — no project match',
+          status: 'partial',
+          detail: data.rationale || 'Upload project data to Datagrid and try again',
+        })
       }
       setStep('confirm')
     } catch (err) {
@@ -132,6 +154,49 @@ export function LessonsFlow() {
       upsertStep({
         id: 'local-search',
         label: 'Project confirmation failed',
+        status: 'error',
+        detail: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function discoverAccessibleProjects() {
+    setLoading(true)
+    setError('')
+    setPassLine('Deep Search is listing projects available in Datagrid…')
+    pushLocalSteps([
+      {
+        id: 'discover',
+        label: 'Discovering accessible projects',
+        status: 'running',
+        detail: 'Scanning Datagrid documents for project names…',
+      },
+    ])
+    try {
+      const data = await discoverProjects()
+      setDiscoveredProjects(data.accessible_projects || [])
+      if (data.reasoning?.length) {
+        setReasoning((prev) => mergeReasoning(prev, data.reasoning || []))
+      } else {
+        upsertStep({
+          id: 'discover',
+          label: `Found ${(data.accessible_projects || []).length} accessible project(s)`,
+          status: 'done',
+          detail: (data.accessible_projects || []).map((p) => p.name).slice(0, 6).join(', '),
+        })
+      }
+      setPassLine(
+        data.accessible_projects?.length
+          ? `${data.accessible_projects.length} accessible project(s) found — pick one to verify`
+          : 'No accessible projects found in Datagrid',
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not discover projects')
+      upsertStep({
+        id: 'discover',
+        label: 'Project discovery failed',
         status: 'error',
         detail: err instanceof Error ? err.message : 'Unknown error',
       })
@@ -352,6 +417,7 @@ export function LessonsFlow() {
     setStep('project')
     setProject('')
     setConfirmation(null)
+    setDiscoveredProjects([])
     setQuestions([])
     setAnswers([])
     setQIndex(0)
@@ -399,17 +465,19 @@ export function LessonsFlow() {
               <>
                 <h2>Which project?</h2>
                 <p className="sub">
-                  Tell us the project to extract lessons learned from. Deep Search will
-                  look through your Datagrid documents and confirm the project name found
-                  in the files.
+                  Enter a project name for Deep Search to verify in Datagrid files, or
+                  discover which projects you already have access to and pick one.
                 </p>
                 <div className="field">
                   <label htmlFor="project">Project name</label>
                   <textarea
                     id="project"
                     value={project}
-                    onChange={(e) => setProject(e.target.value)}
-                    placeholder="e.g. Harborview Phase 2 / Metro Utility Expansion"
+                    onChange={(e) => {
+                      setProject(e.target.value)
+                      setConfirmation(null)
+                    }}
+                    placeholder="e.g. The Harken Apartments / Mt. Pleasant Data Center"
                   />
                 </div>
                 <div className="actions">
@@ -417,13 +485,40 @@ export function LessonsFlow() {
                     Back
                   </Link>
                   <button
+                    className="btn"
+                    disabled={loading}
+                    onClick={discoverAccessibleProjects}
+                  >
+                    {loading ? 'Discovering…' : 'Show accessible projects'}
+                  </button>
+                  <button
                     className="btn btn-primary"
                     disabled={loading || !project.trim()}
-                    onClick={confirmProjectAccess}
+                    onClick={() => confirmProjectAccess()}
                   >
-                    {loading ? 'Searching Datagrid…' : 'Find in Datagrid'}
+                    {loading ? 'Verifying…' : 'Verify in Datagrid'}
                   </button>
                 </div>
+                {discoveredProjects.length > 0 ? (
+                  <div className="alt-list">
+                    <p className="sub">Accessible projects — click to verify:</p>
+                    <ul>
+                      {discoveredProjects.map((alt) => (
+                        <li key={`${alt.knowledge_id || alt.name}`}>
+                          <button
+                            className="btn"
+                            type="button"
+                            disabled={loading}
+                            onClick={() => confirmProjectAccess(alt.name)}
+                          >
+                            Verify {alt.name}
+                          </button>
+                          {alt.notes ? <span className="alt-notes">{alt.notes}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <p className="status-line">{passLine}</p>
                 {error && <p className="error">{error}</p>}
               </>
@@ -431,26 +526,49 @@ export function LessonsFlow() {
 
             {step === 'confirm' && confirmation && (
               <>
-                <h2>Project confirmation</h2>
+                <h2>
+                  {confirmation.matched ? 'Project verified' : 'Project not verified'}
+                </h2>
                 <p className="sub">
                   {confirmation.matched
                     ? confirmation.match_kind === 'fuzzy'
-                      ? 'Fuzzy match — Deep Search found a close project name in your Datagrid files. Confirm it is the right one.'
-                      : 'Exact match — Deep Search found this project in your Datagrid files.'
-                    : 'No match — Deep Search could not find that project in accessible Datagrid data.'}
+                      ? 'Fuzzy match — Deep Search found a close project name in your files. Confirm before continuing.'
+                      : 'Deep Search confirmed this project in your accessible Datagrid files.'
+                    : 'Deep Search could not verify that project. Lessons Learned will not continue until a project is verified.'}
                 </p>
+
+                {confirmation.matched ? (
+                  <div className="verified-banner">
+                    <span>Verified in Datagrid</span>
+                    <strong>
+                      {confirmation.project_name || confirmation.knowledge_name}
+                    </strong>
+                    <em>{(confirmation.match_kind || 'exact').toUpperCase()} MATCH</em>
+                  </div>
+                ) : (
+                  <div className="upload-callout">
+                    <h3>NOT VERIFIED</h3>
+                    <p>
+                      Requested “{confirmation.project}” was not found in accessible
+                      Datagrid data. Upload the project files, then verify again — or
+                      pick an accessible project below.
+                    </p>
+                  </div>
+                )}
+
                 <div className="confirm-card">
                   <p>
                     <span>Requested</span>
                     <strong>{confirmation.project}</strong>
                   </p>
                   <p>
-                    <span>Match</span>
+                    <span>Verification</span>
                     <strong className={`match-kind kind-${confirmation.match_kind || 'none'}`}>
-                      {(confirmation.match_kind || 'none').toUpperCase()}
                       {confirmation.matched
-                        ? ` · ${confirmation.project_name || confirmation.knowledge_name}`
-                        : ''}
+                        ? `${(confirmation.match_kind || 'exact').toUpperCase()} · ${
+                            confirmation.project_name || confirmation.knowledge_name
+                          }`
+                        : 'NOT VERIFIED'}
                     </strong>
                   </p>
                   <p>
@@ -475,57 +593,57 @@ export function LessonsFlow() {
                   ) : null}
                 </div>
 
-                {!confirmation.matched || confirmation.match_kind === 'fuzzy' ? (
-                  <div className="alt-list">
-                    <p className="sub">
-                      {confirmation.matched
-                        ? 'Other projects Deep Search can see:'
-                        : 'Projects currently accessible in Datagrid:'}
-                    </p>
-                    {(confirmation.accessible_projects?.length ||
-                      confirmation.alternatives?.length) ? (
-                      <ul>
-                        {(confirmation.accessible_projects?.length
-                          ? confirmation.accessible_projects
+                <div className="alt-list">
+                  <p className="sub">
+                    {confirmation.matched
+                      ? 'Other accessible projects (click to re-verify):'
+                      : 'Projects currently accessible in Datagrid (click to verify):'}
+                  </p>
+                  {(confirmation.accessible_projects?.length ||
+                    discoveredProjects.length ||
+                    confirmation.alternatives?.length) ? (
+                    <ul>
+                      {(confirmation.accessible_projects?.length
+                        ? confirmation.accessible_projects
+                        : discoveredProjects.length
+                          ? discoveredProjects
                           : confirmation.alternatives || []
-                        ).map((alt) => {
-                          const name = alt.name
-                          const notes = 'notes' in alt ? alt.notes : undefined
-                          return (
-                            <li key={`${alt.knowledge_id || name}`}>
-                              <button
-                                className="btn"
-                                type="button"
-                                onClick={() => {
-                                  setProject(name)
-                                  setConfirmation(null)
-                                  setStep('project')
-                                }}
-                              >
-                                Use {name}
-                              </button>
-                              {notes ? <span className="alt-notes">{notes}</span> : null}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    ) : (
-                      <p className="confirm-rationale">
-                        No accessible project names were returned from Datagrid.
-                      </p>
-                    )}
-                  </div>
-                ) : null}
+                      ).map((alt) => {
+                        const name = alt.name
+                        const notes = 'notes' in alt ? alt.notes : undefined
+                        return (
+                          <li key={`${alt.knowledge_id || name}`}>
+                            <button
+                              className="btn"
+                              type="button"
+                              disabled={loading}
+                              onClick={() => confirmProjectAccess(name)}
+                            >
+                              Verify {name}
+                            </button>
+                            {notes ? <span className="alt-notes">{notes}</span> : null}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="confirm-rationale">
+                      No accessible project names were returned from Datagrid.
+                    </p>
+                  )}
+                </div>
 
-                {confirmation.upload_required || !confirmation.matched ? (
+                {confirmation.matched && confirmation.match_kind === 'fuzzy' ? (
                   <div className="upload-callout">
-                    <h3>No usable match</h3>
+                    <h3>Fuzzy match — confirm carefully</h3>
                     <p>
                       {confirmation.next_step ||
-                        'Upload this project’s data to Datagrid, wait for indexing, then come back and try again.'}
+                        'Continue only if this is the correct project. Otherwise pick another accessible project and verify it.'}
                     </p>
                   </div>
-                ) : confirmation.next_step ? (
+                ) : confirmation.matched && confirmation.next_step ? (
+                  <p className="confirm-rationale">{confirmation.next_step}</p>
+                ) : !confirmation.matched && confirmation.next_step ? (
                   <p className="confirm-rationale">{confirmation.next_step}</p>
                 ) : null}
 
@@ -541,16 +659,25 @@ export function LessonsFlow() {
                     Different project
                   </button>
                   <button
-                    className="btn btn-primary"
-                    disabled={loading || !confirmation.matched}
-                    onClick={startScopeQuestions}
+                    className="btn"
+                    disabled={loading}
+                    onClick={discoverAccessibleProjects}
                   >
-                    {loading
-                      ? 'Scoping…'
-                      : confirmation.match_kind === 'fuzzy'
-                        ? 'Use fuzzy match & continue'
-                        : 'Continue to scope'}
+                    {loading ? 'Discovering…' : 'Refresh accessible projects'}
                   </button>
+                  {confirmation.matched ? (
+                    <button
+                      className="btn btn-primary"
+                      disabled={loading}
+                      onClick={startScopeQuestions}
+                    >
+                      {loading
+                        ? 'Scoping…'
+                        : confirmation.match_kind === 'fuzzy'
+                          ? 'Accept fuzzy match & continue'
+                          : 'Continue with verified project'}
+                    </button>
+                  ) : null}
                 </div>
                 <p className="status-line">{passLine}</p>
                 {error && <p className="error">{error}</p>}

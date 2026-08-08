@@ -39,8 +39,10 @@ from server.jsonutil import extract_json  # noqa: E402
 from server.knowledge import (  # noqa: E402
     UPLOAD_GUIDANCE,
     build_deep_search_confirm_prompt,
+    build_discover_projects_prompt,
     list_knowledge_catalog,
     no_match_payload,
+    normalize_accessible_projects,
     parse_confirm_payload,
     rank_knowledge_matches,
 )
@@ -196,6 +198,95 @@ def health() -> dict[str, Any]:
     }
 
 
+def _load_catalog() -> tuple[list[dict[str, Any]], str]:
+    try:
+        return list_knowledge_catalog(), ""
+    except Exception as exc:  # noqa: BLE001
+        return [], str(exc)
+
+
+@app.post("/api/context/discover-projects")
+def discover_projects() -> dict[str, Any]:
+    """Inventory projects Deep Search can see in accessible Datagrid data."""
+    reasoning: list[dict[str, Any]] = [
+        {
+            "id": "discover",
+            "label": "Discovering projects in Datagrid",
+            "status": "running",
+            "detail": "Deep Search is scanning accessible documents for project names",
+        }
+    ]
+    catalog, catalog_error = _load_catalog()
+    if catalog_error:
+        reasoning.append(
+            {
+                "id": "catalog",
+                "label": "Knowledge catalog unavailable",
+                "status": "partial",
+                "detail": catalog_error,
+            }
+        )
+    else:
+        reasoning.append(
+            {
+                "id": "catalog",
+                "label": f"Found {len(catalog)} knowledge sources",
+                "status": "done",
+                "detail": ", ".join(item["name"] for item in catalog[:6])
+                + ("…" if len(catalog) > 6 else ""),
+            }
+        )
+
+    result = _converse("deep_search", build_discover_projects_prompt(catalog))
+    parsed = extract_json(result.get("text") or "")
+    projects: list[dict[str, Any]] = []
+    model_steps: list[dict[str, Any]] = []
+    if isinstance(parsed, dict):
+        projects = normalize_accessible_projects(parsed.get("accessible_projects"), catalog)
+        raw_steps = parsed.get("reasoning_steps") if isinstance(parsed.get("reasoning_steps"), list) else []
+        for step in raw_steps:
+            if isinstance(step, dict) and step.get("label"):
+                model_steps.append(
+                    {
+                        "id": str(step.get("id") or f"step-{len(model_steps)+1}"),
+                        "label": str(step.get("label")).strip(),
+                        "status": str(step.get("status") or "done"),
+                        "detail": str(step.get("detail") or "").strip(),
+                    }
+                )
+    if not projects and catalog:
+        projects = [
+            {
+                "name": item["name"],
+                "notes": f"Knowledge source ({item.get('status') or 'unknown'})",
+                "knowledge_id": item["id"],
+                "knowledge_name": item["name"],
+            }
+            for item in catalog[:12]
+        ]
+
+    reasoning[0] = {
+        "id": "discover",
+        "label": f"Found {len(projects)} accessible project(s)",
+        "status": "done",
+        "detail": ", ".join(p["name"] for p in projects[:6]) + ("…" if len(projects) > 6 else ""),
+    }
+    reasoning.extend(model_steps)
+
+    return {
+        "ok": True,
+        "accessible_projects": projects,
+        "catalog_count": len(catalog),
+        "reasoning": reasoning,
+        "agent": {
+            "role": "deep_search",
+            "agent_id": result.get("agent_id"),
+            "agent_name": result.get("agent_name"),
+            "conversation_id": result.get("conversation_id"),
+        },
+    }
+
+
 @app.post("/api/context/confirm-project")
 def confirm_project(body: ProjectConfirmRequest) -> dict[str, Any]:
     project = body.project.strip()
@@ -217,12 +308,8 @@ def confirm_project(body: ProjectConfirmRequest) -> dict[str, Any]:
         },
     ]
 
-    catalog: list[dict[str, Any]] = []
-    catalog_error = ""
-    try:
-        catalog = list_knowledge_catalog()
-    except Exception as exc:  # noqa: BLE001
-        catalog_error = str(exc)
+    catalog, catalog_error = _load_catalog()
+    if catalog_error:
         reasoning[1] = {
             "id": "catalog",
             "label": "Knowledge catalog unavailable",

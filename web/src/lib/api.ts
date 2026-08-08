@@ -152,6 +152,15 @@ export function confirmProject(payload: { project: string }) {
   return request<ProjectConfirmResult>('/api/context/confirm-project', payload)
 }
 
+export function discoverProjects() {
+  return request<{
+    ok: boolean
+    accessible_projects: AccessibleProject[]
+    catalog_count?: number
+    reasoning?: ReasoningStep[]
+  }>('/api/context/discover-projects', {})
+}
+
 export function generateFollowups(payload: {
   prompt?: string
   project?: string

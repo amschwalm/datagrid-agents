@@ -101,6 +101,38 @@ def list_knowledge_catalog(
     return [item for item in items if item.get("id") and item.get("name")]
 
 
+def build_discover_projects_prompt(catalog: list[dict[str, Any]] | None = None) -> str:
+    catalog = catalog or []
+    catalog_lines = "\n".join(
+        f"- {item['name']} (id={item['id']}, status={item.get('status') or 'unknown'})"
+        for item in catalog[:80]
+    ) or "(knowledge catalog unavailable — rely only on document search)"
+    return f"""
+You are the Deep Search agent. Inventory the distinct construction projects
+available in Datagrid data you can access.
+
+## Knowledge catalog names (secondary hint only)
+{catalog_lines}
+
+## What to do
+1. Search files/documents/tables for project names, job names, contract titles,
+   and site names.
+2. Return a deduplicated list of projects you can actually see evidence for.
+3. Prefer canonical names as they appear in the files.
+
+Return ONLY valid JSON:
+{{
+  "accessible_projects": [
+    {{"name":"Project A","notes":"seen in RFIs / specs","knowledge_id":null,"knowledge_name":null}}
+  ],
+  "reasoning_steps": [
+    {{"id":"search","label":"Scanning accessible documents","status":"done","detail":"..."}},
+    {{"id":"list","label":"Compiled project inventory","status":"done","detail":"..."}}
+  ]
+}}
+""".strip()
+
+
 def build_deep_search_confirm_prompt(
     project: str,
     catalog: list[dict[str, Any]] | None = None,
@@ -130,9 +162,10 @@ in the Datagrid data you can access BEFORE a lessons-learned extraction starts.
    - fuzzy: close / partial / likely same project under a different label
    - none: not found in accessible data
 4. If matched, return the canonical project name as it appears in the files.
-5. If not matched (or fuzzy with doubt), list the distinct projects you DO have
-   access to based on the documents.
+5. ALWAYS list the distinct projects you DO have access to in accessible_projects
+   (even on an exact match — include at least the matched project).
 6. If none, tell the user to upload their project data to Datagrid and come back.
+7. Do not mark matched=true unless you found document evidence for that project.
 
 Return ONLY valid JSON:
 {{
@@ -216,6 +249,14 @@ def _attach_catalog_ids(
     return enriched
 
 
+def normalize_accessible_projects(
+    raw: Any,
+    catalog: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Public helper to clean model project rows and attach catalog ids."""
+    return _attach_catalog_ids(_clean_project_rows(raw), catalog or [])
+
+
 def parse_confirm_payload(
     data: dict[str, Any],
     *,
@@ -254,6 +295,26 @@ def parse_confirm_payload(
     )
     knowledge_name = str(data.get("knowledge_name") or "").strip() or project_name
     knowledge_id = str(data.get("knowledge_id") or "").strip() or None
+    evidence = data.get("evidence") if isinstance(data.get("evidence"), list) else []
+    evidence_clean = [str(e).strip() for e in evidence if str(e).strip()][:8]
+    rationale = str(data.get("rationale") or "").strip()
+
+    # Never invent a match from the catalog alone — Deep Search must name the project.
+    # Catalog is only used to attach ids after a real match.
+    if matched and not project_name:
+        matched = False
+        match_kind = "none"
+        confidence = "low"
+
+    # Soft guard: matched without any evidence/rationale is untrusted.
+    if matched and not evidence_clean and not rationale:
+        matched = False
+        match_kind = "none"
+        confidence = "low"
+        rationale = (
+            "Deep Search claimed a match but returned no document evidence. "
+            "Treating as not verified — try again or pick from accessible projects."
+        )
 
     # Fill knowledge id from catalog when possible.
     if matched and project_name and not knowledge_id and catalog:
@@ -261,12 +322,6 @@ def parse_confirm_payload(
         if local and float(local[0]["score"]) >= 0.7:
             knowledge_id = str(local[0]["id"])
             knowledge_name = knowledge_name or str(local[0]["name"])
-
-    if matched and (not project_name) and ranked:
-        project_name = str(ranked[0]["name"])
-        knowledge_id = knowledge_id or str(ranked[0]["id"])
-        knowledge_name = knowledge_name or project_name
-        match_kind = "exact" if float(ranked[0]["score"]) >= 0.9 else "fuzzy"
 
     accessible = _attach_catalog_ids(
         _clean_project_rows(data.get("accessible_projects")),
@@ -283,10 +338,6 @@ def parse_confirm_payload(
             }
             for item in catalog[:12]
         ]
-
-    rationale = str(data.get("rationale") or "").strip()
-    evidence = data.get("evidence") if isinstance(data.get("evidence"), list) else []
-    evidence_clean = [str(e).strip() for e in evidence if str(e).strip()][:8]
 
     upload_required = bool(data.get("upload_required")) if "upload_required" in data else not matched
     next_step = str(data.get("next_step") or "").strip()

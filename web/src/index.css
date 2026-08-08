@@ -357,6 +357,31 @@ button {
   color: var(--ink-faint);
 }
 
+.verified-banner {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.95rem 1.1rem;
+  margin: 0 0 1.1rem;
+}
+
+.verified-banner span,
+.verified-banner em {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-style: normal;
+}
+
+.verified-banner strong {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
 .upload-callout {
   border: 1px solid var(--line-strong);
   padding: 1rem 1.1rem;

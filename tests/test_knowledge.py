@@ -1,7 +1,9 @@
 from server.knowledge import (
     UPLOAD_GUIDANCE,
     build_deep_search_confirm_prompt,
+    build_discover_projects_prompt,
     no_match_payload,
+    normalize_accessible_projects,
     parse_confirm_payload,
     rank_knowledge_matches,
     score_knowledge_match,
@@ -72,3 +74,41 @@ def test_no_match_payload_includes_upload_guidance():
     assert payload["upload_required"] is True
     assert payload["next_step"] == UPLOAD_GUIDANCE
     assert payload["accessible_projects"][0]["name"] == "Tower A"
+
+
+def test_discover_prompt_asks_for_inventory():
+    prompt = build_discover_projects_prompt([{"id": "1", "name": "Tower A"}])
+    assert "Inventory" in prompt or "distinct" in prompt.lower()
+    assert "accessible_projects" in prompt
+
+
+def test_normalize_accessible_projects_attaches_catalog_ids():
+    rows = normalize_accessible_projects(
+        [{"name": "Tower A", "notes": "from RFIs"}],
+        catalog=[{"id": "kn_1", "name": "Tower A", "status": "ready"}],
+    )
+    assert rows[0]["knowledge_id"] == "kn_1"
+
+
+def test_parse_rejects_match_without_project_name_or_evidence():
+    no_name = parse_confirm_payload(
+        {
+            "matched": True,
+            "match_kind": "exact",
+            "rationale": "looks good",
+            "evidence": ["seen in RFIs"],
+        },
+        ranked=[{"id": "kn_1", "name": "Catalog Only", "score": 1.0}],
+    )
+    assert no_name["matched"] is False
+    assert no_name["match_kind"] == "none"
+
+    no_evidence = parse_confirm_payload(
+        {
+            "matched": True,
+            "match_kind": "exact",
+            "project_name": "Tower A",
+        }
+    )
+    assert no_evidence["matched"] is False
+    assert no_evidence["match_kind"] == "none"
