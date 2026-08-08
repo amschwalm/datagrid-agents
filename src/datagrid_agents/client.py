@@ -21,7 +21,10 @@ def load_env() -> None:
 def require_api_key() -> str:
     """Return the Datagrid API key or raise a clear error."""
     load_env()
-    api_key = os.environ.get("DATAGRID_API_KEY", "").strip()
+    api_key = (
+        os.environ.get("DATAGRID_API_KEY", "").strip()
+        or os.environ.get("Datagrid_API_KEY", "").strip()
+    )
     if not api_key or api_key == "your_api_key_here":
         raise MissingApiKeyError(
             "Set DATAGRID_API_KEY in your environment or .env file. "

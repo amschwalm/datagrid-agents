@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from datagrid_agents.client import MissingApiKeyError
+from datagrid_agents.orchestrator import list_roles, list_workflows, run_workflow
 from datagrid_agents.registry import list_definitions, load_definition
 from datagrid_agents import service
 
@@ -77,6 +78,57 @@ def cmd_list_remote(args: argparse.Namespace) -> int:
         desc = getattr(agent, "description", None) or ""
         print(f"{agent.id}\t{agent.name}\t{desc}")
     return 0
+
+
+def cmd_roles(_: argparse.Namespace) -> int:
+    roles = list_roles()
+    if not roles:
+        print("No orchestrator roles configured.")
+        return 0
+    for role in roles:
+        print(f"{role.key}\t{role.id}\t{role.name}\t{role.role}\t{role.chat_mode}")
+    return 0
+
+
+def cmd_workflows(_: argparse.Namespace) -> int:
+    names = list_workflows()
+    if not names:
+        print("No orchestrator workflows registered.")
+        return 0
+    for name in names:
+        print(name)
+    return 0
+
+
+def cmd_orchestrate(args: argparse.Namespace) -> int:
+    prompt = args.prompt
+    if args.file:
+        prompt = Path(args.file).read_text(encoding="utf-8")
+    if not prompt:
+        print("Provide --prompt or --file.", file=sys.stderr)
+        return 2
+
+    roles = None
+    if args.roles:
+        roles = [part.strip() for part in args.roles.split(",") if part.strip()]
+        if not roles:
+            print("error: --roles was empty", file=sys.stderr)
+            return 2
+
+    run = run_workflow(
+        args.workflow,
+        prompt,
+        context_paths=args.context or None,
+        roles=roles,
+        repeats=args.repeat,
+        max_workers=args.max_workers,
+        runs_dir=None if args.no_save else Path(args.runs_dir),
+    )
+    if args.json:
+        print(json.dumps(run.to_dict(), indent=2))
+    else:
+        print(run.markdown)
+    return 0 if run.ok else 1
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -174,6 +226,68 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--conversation-id", help="Continue an existing conversation")
     p_run.add_argument("--json", action="store_true", help="Emit JSON instead of plain text")
     p_run.set_defaults(func=cmd_run)
+
+    p_roles = sub.add_parser(
+        "roles",
+        help="List orchestrator role → Datagrid agent mappings",
+    )
+    p_roles.set_defaults(func=cmd_roles)
+
+    p_workflows = sub.add_parser(
+        "workflows",
+        help="List named Cursor/Datagrid orchestration playbooks",
+    )
+    p_workflows.set_defaults(func=cmd_workflows)
+
+    p_orch = sub.add_parser(
+        "orchestrate",
+        help="Run a parallel Datagrid + local-context orchestration workflow",
+    )
+    p_orch.add_argument(
+        "workflow",
+        help="Workflow name (see: datagrid-agents workflows)",
+    )
+    p_orch.add_argument("--prompt", "-p", help="Prompt / user goal text")
+    p_orch.add_argument("--file", "-f", help="Read prompt from a file")
+    p_orch.add_argument(
+        "--context",
+        "-c",
+        action="append",
+        default=[],
+        help="Local file or directory to attach as code/context (repeatable)",
+    )
+    p_orch.add_argument(
+        "--roles",
+        help="Comma-separated role keys for the fanout workflow (e.g. mentor,schedule,rfi)",
+    )
+    p_orch.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="For fanout: call each role N times with distinct pass angles (default: 1)",
+    )
+    p_orch.add_argument(
+        "--max-workers",
+        type=int,
+        default=3,
+        help="Max parallel Datagrid calls (default: 3)",
+    )
+    p_orch.add_argument(
+        "--runs-dir",
+        default=".orchestrator/runs",
+        help="Directory for run artifacts (default: .orchestrator/runs)",
+    )
+    p_orch.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Do not write run artifacts to disk",
+    )
+    p_orch.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of markdown",
+    )
+    p_orch.set_defaults(func=cmd_orchestrate)
 
     return parser
 

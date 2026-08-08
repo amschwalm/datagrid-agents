@@ -1,0 +1,73 @@
+# Role → Datagrid agent registry for Cursor orchestration.
+# Author/iterate agents in Datagrid; keep only IDs + roles here.
+# Override any id with DATAGRID_AGENT_<ROLE_UPPER> (e.g. DATAGRID_AGENT_MENTOR).
+
+mentor:
+  id: 4b7ed183-e1f2-4e2c-98f6-a88eb676aebf
+  name: Mentor Agent
+  role: lessons_learned
+  chat_mode: full_agent
+  description: >
+    Lessons learned from historical projects. Use for risk framing,
+    buyout pitfalls, and field-proven preventative actions.
+
+schedule:
+  id: 9d04cb69-7f81-4a3f-b358-0f16ea464741
+  name: Schedule Intelligence
+  role: schedule_risk
+  chat_mode: full_agent
+  description: >
+    Construction schedule progress, delays, and critical-path risk analysis.
+
+change_order:
+  id: 99c78520-65d3-44a3-a44d-43defcf5a7c2
+  name: Change Order Agent
+  role: change_order
+  chat_mode: full_agent
+  description: >
+    Change-order documentation gaps, pricing risk, and COR readiness.
+
+deep_search:
+  id: ab199317-59a4-4213-9c3b-535decfa205a
+  name: Deep Search Agent
+  role: project_search
+  chat_mode: full_agent
+  description: >
+    Deep search across specs, drawings, RFIs, and submittals grounded in
+    project requirements.
+
+drawings_specs:
+  id: b9be2dac-6bcc-42f5-83fe-3dc36f00ef92
+  name: Drawings & Specs Specialist
+  role: drawings_specs
+  chat_mode: full_agent
+  description: >
+    Deep search of drawings and specifications for callouts, materials,
+    and project details.
+
+submittal:
+  id: 1b7ddab6-3799-4406-ac99-ac7cd7837d48
+  name: Technical Submittal Reviewer
+  role: submittal_review
+  chat_mode: full_agent
+  description: >
+    Compare submittals against specifications for compliance gaps.
+
+drawing_revision:
+  id: 0d10042a-3040-464f-93ce-369f68060d53
+  name: Drawing Revision Reviewer
+  role: drawing_revision
+  chat_mode: full_agent
+  description: >
+    Review drawing revisions for conflicts, missing bubbles, and coordination gaps.
+
+# Optional alias: point this at a dedicated RFI agent when you build one in Datagrid.
+# Until then, deep_search covers RFI/project-document questions in rfi_packet_qa.
+rfi:
+  id: ab199317-59a4-4213-9c3b-535decfa205a
+  name: Deep Search Agent (RFI alias)
+  role: rfi_review
+  chat_mode: full_agent
+  description: >
+    Alias for RFI packet review. Override with DATAGRID_AGENT_RFI when you
+    create a dedicated RFI agent in Datagrid.

@@ -31,3 +31,6 @@ htmlcov/
 # Local agent state
 .agent_ids.json
 *.log
+
+# Orchestrator run artifacts
+.orchestrator/

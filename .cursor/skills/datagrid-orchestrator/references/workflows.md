@@ -1,0 +1,70 @@
+# Orchestrator workflows
+
+## `utility_buyout_risks`
+
+**Goal:** Critical risks when buying out an electrical / utility package.
+
+**Parallel Datagrid roles:** `mentor`, `schedule`, `change_order`
+
+**Local differential (Cursor):** attach buyout notes; dedupe specialty tables into one register.
+
+```bash
+.venv/bin/datagrid-agents orchestrate utility_buyout_risks \
+  -p "Buying out elec utility package — top risks from lessons learned" \
+  -c ./notes/utility-buyout.md
+```
+
+## `rfi_packet_qa`
+
+**Goal:** Completeness / clarity check before an RFI goes out.
+
+**Parallel Datagrid roles:** `deep_search`, `drawings_specs`, `drawing_revision`
+
+**Local differential:** scans prompt/paths for RFI/drawing tokens and flags missing attachments.
+
+```bash
+.venv/bin/datagrid-agents orchestrate rfi_packet_qa \
+  -p "Review RFI-12 against drawings A-101 and E-201" \
+  -c ./packets/rfi-12/
+```
+
+When you build a dedicated RFI agent in Datagrid, set `DATAGRID_AGENT_RFI=<id>` (role `rfi` is already reserved) and/or add `rfi` to the workflow role list.
+
+## `submittal_disposition`
+
+**Goal:** Spec/drawing-based disposition notes for a submittal package.
+
+**Parallel Datagrid roles:** `submittal`, `drawings_specs`, `deep_search`
+
+**Local differential:** same attachment/token coverage helper as RFI QA.
+
+```bash
+.venv/bin/datagrid-agents orchestrate submittal_disposition \
+  -p "Disposition submittal 03 30 00 concrete mix design" \
+  -c ./submittals/033000/
+```
+
+## `fanout` (new / custom agents)
+
+Ad-hoc parallel calls for any registered roles. Use this for agents you just built (after adding them to `agents.yaml` or setting `DATAGRID_AGENT_<ROLE>`).
+
+Supports calling the **same role multiple times** with `--repeat N` (distinct pass angles).
+
+```bash
+# New combo of existing roles
+.venv/bin/datagrid-agents orchestrate fanout \
+  --roles mentor,rfi,schedule \
+  -p "What should we pressure-test before buyout?"
+
+# Same agent, two passes
+.venv/bin/datagrid-agents orchestrate fanout \
+  --roles mentor \
+  --repeat 2 \
+  -p "First pass: underground risk. Second pass: commercial/contract risk."
+```
+
+## Adding a named workflow
+
+1. Create `src/datagrid_agents/orchestrator/workflows/<name>.py` with `build_calls(prompt, context)`.
+2. Register it in `workflows/__init__.py`.
+3. Document it here.

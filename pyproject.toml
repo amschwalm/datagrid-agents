@@ -26,4 +26,7 @@ datagrid-agents = "datagrid_agents.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-datagrid_agents = ["definitions/*.yaml"]
+datagrid_agents = [
+  "definitions/*.yaml",
+  "orchestrator/agents.yaml",
+]
