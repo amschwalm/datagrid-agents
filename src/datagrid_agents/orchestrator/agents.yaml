@@ -11,6 +11,15 @@ mentor:
     Lessons learned from historical projects. Use for risk framing,
     buyout pitfalls, and field-proven preventative actions.
 
+lessons_extractor:
+  id: 034c624e-a30b-4f02-8bb2-4bbad5cf14ec
+  name: Lessons Learned Extractor
+  role: lessons_extraction
+  chat_mode: full_agent
+  description: >
+    Extracts structured lessons learned from project closeout context,
+    surveys, and wrap-up narratives.
+
 schedule:
   id: 9d04cb69-7f81-4a3f-b358-0f16ea464741
   name: Schedule Intelligence

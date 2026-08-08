@@ -8,16 +8,38 @@ This repo gives you ready-made agent blueprints (RFI review, submittals, safety,
 
 1. A Datagrid account and API key from [app.datagrid.com](https://app.datagrid.com) (API Keys).
 2. Python 3.10+.
+3. Node.js 20+ (for the Construction Lessons Learned web app).
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+pip install -r server/requirements.txt
 cp .env.example .env
 # edit .env and set DATAGRID_API_KEY
 ```
 
 Optional: set `CONSTRUCTION_KNOWLEDGE_IDS` to a comma-separated list of Datagrid knowledge IDs so agents are scoped to your project docs instead of all org knowledge.
+
+## Construction Lessons Learned web app
+
+Monochrome survey UI for:
+
+1. **Lessons learned extractor** — profile + project wrap-up survey → Datagrid Lessons Learned Extractor
+2. **Construction mentor** — short intake + prompt + follow-ups → Mentor Agent, then Lessons Extractor as a second-agent evidence pass
+
+```bash
+# terminal 1 — API
+source .venv/bin/activate
+uvicorn server.app:app --reload --port 8000
+
+# terminal 2 — UI
+cd web
+npm install
+npm run dev
+```
+
+Open http://localhost:5173 — Vite proxies `/api` to the FastAPI server.
 
 ## Quick start
 
@@ -142,8 +164,13 @@ src/datagrid_agents/
   service.py             # create / sync / converse
   definitions/           # construction agent blueprints
   orchestrator/          # parallel Datagrid + local-context workflows
+server/
+  app.py                 # Construction Lessons Learned FastAPI
+web/                     # Construction Lessons Learned Vite/React UI
 .cursor/skills/
   datagrid-orchestrator/ # Cursor skill for hybrid orchestration
+.cursor/agents/
+  datagrid.md            # Cursor Datagrid subagent
 examples/
 tests/
 ```
