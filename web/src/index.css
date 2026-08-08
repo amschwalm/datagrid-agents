@@ -319,12 +319,63 @@ button {
   line-height: 1.45;
 }
 
+.match-kind.kind-exact {
+  color: var(--ink);
+}
+
+.match-kind.kind-fuzzy {
+  color: var(--ink);
+}
+
+.match-kind.kind-none {
+  color: var(--ink-muted);
+}
+
+.confirm-evidence {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
 .alt-list ul {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
   display: grid;
   gap: 0.5rem;
+}
+
+.alt-list li {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+}
+
+.alt-notes {
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+}
+
+.upload-callout {
+  border: 1px solid var(--line-strong);
+  padding: 1rem 1.1rem;
+  margin: 0 0 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.upload-callout h3 {
+  margin: 0 0 0.45rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.upload-callout p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.45;
 }
 
 .reasoning-empty {

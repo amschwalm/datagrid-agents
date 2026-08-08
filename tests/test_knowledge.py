@@ -1,4 +1,7 @@
 from server.knowledge import (
+    UPLOAD_GUIDANCE,
+    build_deep_search_confirm_prompt,
+    no_match_payload,
     parse_confirm_payload,
     rank_knowledge_matches,
     score_knowledge_match,
@@ -22,11 +25,50 @@ def test_rank_knowledge_matches_orders_best_first():
     assert ranked[0]["score"] >= 0.9
 
 
-def test_parse_confirm_payload_falls_back_to_ranked():
-    ranked = [{"id": "kn_1", "name": "Harborview", "score": 0.95}]
+def test_deep_search_prompt_mentions_file_match_and_upload():
+    prompt = build_deep_search_confirm_prompt("Harborview", [{"id": "kn_1", "name": "Harborview"}])
+    assert "User-requested project" in prompt
+    assert "exact" in prompt and "fuzzy" in prompt
+    assert "upload" in prompt.lower()
+
+
+def test_parse_confirm_payload_fuzzy_and_accessible():
     parsed = parse_confirm_payload(
-        {"matched": True, "confidence": "high", "rationale": "Exact"},
-        ranked,
+        {
+            "matched": True,
+            "match_kind": "fuzzy",
+            "project_name": "Harborview Medical Center Phase 2",
+            "confidence": "med",
+            "rationale": "Close name in RFIs",
+            "accessible_projects": [
+                {"name": "Metro Utility Expansion", "notes": "seen in specs"}
+            ],
+            "upload_required": False,
+        },
+        catalog=[{"id": "kn_metro", "name": "Metro Utility Expansion", "status": "ready"}],
     )
-    assert parsed["knowledge_id"] == "kn_1"
-    assert parsed["knowledge_name"] == "Harborview"
+    assert parsed["matched"] is True
+    assert parsed["match_kind"] == "fuzzy"
+    assert parsed["project_name"] == "Harborview Medical Center Phase 2"
+    assert parsed["accessible_projects"][0]["knowledge_id"] == "kn_metro"
+
+
+def test_parse_confirm_payload_none_sets_upload_guidance():
+    parsed = parse_confirm_payload(
+        {
+            "matched": False,
+            "match_kind": "none",
+            "accessible_projects": [{"name": "Tower A"}],
+        }
+    )
+    assert parsed["matched"] is False
+    assert parsed["upload_required"] is True
+    assert "Upload" in parsed["next_step"] or "upload" in parsed["next_step"].lower()
+
+
+def test_no_match_payload_includes_upload_guidance():
+    payload = no_match_payload("Missing Job", catalog=[{"id": "1", "name": "Tower A"}])
+    assert payload["matched"] is False
+    assert payload["upload_required"] is True
+    assert payload["next_step"] == UPLOAD_GUIDANCE
+    assert payload["accessible_projects"][0]["name"] == "Tower A"

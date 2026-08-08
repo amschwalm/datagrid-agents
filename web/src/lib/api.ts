@@ -45,17 +45,34 @@ export type KnowledgeCandidate = {
   name: string
   score?: number
   status?: string
+  notes?: string
+  knowledge_id?: string | null
+  knowledge_name?: string | null
+}
+
+export type AccessibleProject = {
+  name: string
+  notes?: string
+  knowledge_id?: string | null
+  knowledge_name?: string | null
+  score?: number
 }
 
 export type ProjectConfirmResult = {
   ok: boolean
   project: string
   matched: boolean
+  match_kind?: 'exact' | 'fuzzy' | 'none' | string
+  project_name?: string | null
   knowledge_id?: string | null
   knowledge_name?: string | null
   confidence?: string
   rationale?: string
+  evidence?: string[]
+  accessible_projects?: AccessibleProject[]
   alternatives?: KnowledgeCandidate[]
+  upload_required?: boolean
+  next_step?: string
   candidates?: KnowledgeCandidate[]
   catalog_count?: number
   reasoning: ReasoningStep[]

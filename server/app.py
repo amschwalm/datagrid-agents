@@ -37,8 +37,10 @@ from server.interview import (  # noqa: E402
 )
 from server.jsonutil import extract_json  # noqa: E402
 from server.knowledge import (  # noqa: E402
-    build_confirm_prompt,
+    UPLOAD_GUIDANCE,
+    build_deep_search_confirm_prompt,
     list_knowledge_catalog,
+    no_match_payload,
     parse_confirm_payload,
     rank_knowledge_matches,
 )
@@ -173,56 +175,6 @@ Return ONLY valid JSON:
 """.strip()
 
 
-def _fallback_confirm(project: str, ranked: list[dict[str, Any]], catalog_count: int) -> dict[str, Any]:
-    if ranked and float(ranked[0]["score"]) >= 0.55:
-        top = ranked[0]
-        return {
-            "matched": True,
-            "knowledge_id": top["id"],
-            "knowledge_name": top["name"],
-            "confidence": "high" if float(top["score"]) >= 0.9 else "med",
-            "rationale": f'Matched "{project}" to Datagrid knowledge "{top["name"]}".',
-            "alternatives": [
-                {"id": row["id"], "name": row["name"]} for row in ranked[1:4]
-            ],
-            "reasoning": [
-                {
-                    "id": "catalog",
-                    "label": f"Scanned {catalog_count} Datagrid knowledge entries",
-                    "status": "done",
-                    "detail": "Listed workspace knowledge available to this API key",
-                },
-                {
-                    "id": "match",
-                    "label": f'Best match: {top["name"]}',
-                    "status": "done",
-                    "detail": f'Name similarity score {top["score"]}',
-                },
-            ],
-            "candidates": ranked[:5],
-        }
-    return {
-        "matched": False,
-        "knowledge_id": None,
-        "knowledge_name": None,
-        "confidence": "low",
-        "rationale": (
-            f'Could not confirm "{project}" in Datagrid knowledge. '
-            "Check the project name or knowledge availability."
-        ),
-        "alternatives": [{"id": row["id"], "name": row["name"]} for row in ranked[:3]],
-        "reasoning": [
-            {
-                "id": "catalog",
-                "label": f"Scanned {catalog_count} Datagrid knowledge entries",
-                "status": "done",
-                "detail": "No strong name match for the requested project",
-            }
-        ],
-        "candidates": ranked[:5],
-    }
-
-
 def _sse(event: str, data: dict[str, Any]) -> str:
     payload = json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
@@ -259,48 +211,101 @@ def confirm_project(body: ProjectConfirmRequest) -> dict[str, Any]:
         },
         {
             "id": "catalog",
-            "label": "Listing Datagrid knowledge",
+            "label": "Listing Datagrid knowledge sources",
             "status": "running",
-            "detail": "Checking workspace knowledge available to this API key",
+            "detail": "Secondary catalog for ids / accessible names",
         },
     ]
 
+    catalog: list[dict[str, Any]] = []
+    catalog_error = ""
     try:
         catalog = list_knowledge_catalog()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=502,
-            detail=f"Could not list Datagrid knowledge: {exc}",
-        ) from exc
+        catalog_error = str(exc)
+        reasoning[1] = {
+            "id": "catalog",
+            "label": "Knowledge catalog unavailable",
+            "status": "partial",
+            "detail": catalog_error,
+        }
+    else:
+        reasoning[1] = {
+            "id": "catalog",
+            "label": f"Found {len(catalog)} knowledge sources",
+            "status": "done",
+            "detail": ", ".join(item["name"] for item in catalog[:6])
+            + ("…" if len(catalog) > 6 else ""),
+        }
 
-    reasoning[1] = {
-        "id": "catalog",
-        "label": f"Found {len(catalog)} knowledge sources",
-        "status": "done",
-        "detail": ", ".join(item["name"] for item in catalog[:6])
-        + ("…" if len(catalog) > 6 else ""),
-    }
-    ranked = rank_knowledge_matches(project, catalog)
+    ranked = rank_knowledge_matches(project, catalog) if catalog else []
     reasoning.append(
         {
-            "id": "rank",
-            "label": "Ranking name matches",
-            "status": "done",
-            "detail": (
-                ", ".join(f'{row["name"]} ({row["score"]})' for row in ranked[:3])
-                or "No local name overlap"
-            ),
+            "id": "deep-search",
+            "label": "Deep searching project documents for matching project names",
+            "status": "running",
+            "detail": "Matching your request to names found in accessible files",
         }
     )
 
-    result = _converse("lessons_extractor", build_confirm_prompt(project, catalog, ranked))
+    try:
+        result = _converse(
+            "deep_search",
+            build_deep_search_confirm_prompt(project, catalog),
+        )
+    except HTTPException as exc:
+        confirmation = no_match_payload(
+            project,
+            catalog=catalog,
+            detail=f"Deep search failed: {exc.detail}",
+        )
+        reasoning.append(
+            {
+                "id": "deep-search",
+                "label": "Deep search failed",
+                "status": "error",
+                "detail": str(exc.detail),
+            }
+        )
+        return {
+            "ok": True,
+            "project": project,
+            "matched": False,
+            "match_kind": "none",
+            "project_name": None,
+            "knowledge_id": None,
+            "knowledge_name": None,
+            "confidence": "low",
+            "rationale": confirmation["rationale"],
+            "evidence": [],
+            "accessible_projects": confirmation.get("accessible_projects") or [],
+            "alternatives": confirmation.get("alternatives") or [],
+            "upload_required": True,
+            "next_step": UPLOAD_GUIDANCE,
+            "candidates": ranked[:5],
+            "catalog_count": len(catalog),
+            "reasoning": reasoning + confirmation.get("reasoning", []),
+            "agent": None,
+        }
+
+    reasoning[2] = {
+        "id": "deep-search",
+        "label": "Deep search complete",
+        "status": "done",
+        "detail": "Parsed project identity from accessible Datagrid documents",
+    }
+
     parsed = extract_json(result.get("text") or "")
     if isinstance(parsed, dict):
-        confirmation = parse_confirm_payload(parsed, ranked)
+        confirmation = parse_confirm_payload(parsed, catalog=catalog, ranked=ranked)
     else:
-        confirmation = _fallback_confirm(project, ranked, len(catalog))
+        # If the model returned prose only, treat as no match but keep catalog names.
+        confirmation = no_match_payload(
+            project,
+            catalog=catalog,
+            detail="Deep search did not return structured project identity JSON.",
+        )
 
-    # Prefer model reasoning when present; otherwise keep local trail.
     if confirmation.get("reasoning"):
         reasoning.extend(confirmation["reasoning"])
     else:
@@ -308,9 +313,10 @@ def confirm_project(body: ProjectConfirmRequest) -> dict[str, Any]:
             {
                 "id": "decide",
                 "label": (
-                    f'Confirmed knowledge: {confirmation["knowledge_name"]}'
+                    f'{confirmation.get("match_kind", "none").title()} match: '
+                    f'{confirmation.get("project_name") or confirmation.get("knowledge_name")}'
                     if confirmation.get("matched")
-                    else "No confident knowledge match"
+                    else "No project match in accessible Datagrid data"
                 ),
                 "status": "done" if confirmation.get("matched") else "partial",
                 "detail": confirmation.get("rationale") or "",
@@ -321,15 +327,24 @@ def confirm_project(body: ProjectConfirmRequest) -> dict[str, Any]:
         "ok": True,
         "project": project,
         "matched": confirmation["matched"],
+        "match_kind": confirmation.get("match_kind") or ("exact" if confirmation["matched"] else "none"),
+        "project_name": confirmation.get("project_name") or confirmation.get("knowledge_name"),
         "knowledge_id": confirmation.get("knowledge_id"),
         "knowledge_name": confirmation.get("knowledge_name"),
         "confidence": confirmation.get("confidence"),
         "rationale": confirmation.get("rationale"),
+        "evidence": confirmation.get("evidence") or [],
+        "accessible_projects": confirmation.get("accessible_projects") or [],
         "alternatives": confirmation.get("alternatives") or [],
+        "upload_required": bool(confirmation.get("upload_required")),
+        "next_step": confirmation.get("next_step") or (
+            UPLOAD_GUIDANCE if not confirmation["matched"] else ""
+        ),
         "candidates": confirmation.get("candidates") or ranked[:5],
         "catalog_count": len(catalog),
         "reasoning": reasoning,
         "agent": {
+            "role": "deep_search",
             "agent_id": result.get("agent_id"),
             "agent_name": result.get("agent_name"),
             "conversation_id": result.get("conversation_id"),
