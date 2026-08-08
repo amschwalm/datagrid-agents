@@ -141,19 +141,19 @@ export function LessonsFlow() {
     setLoading(true)
     setError('')
     setConfirmation(null)
-    setPassLine(`Verifying “${requested}” in Datagrid with Deep Search…`)
+    setPassLine(`Checking project files for “${requested}”…`)
     pushLocalSteps([
       {
         id: 'local-ask',
-        label: 'Capturing project name',
+        label: 'Got the project name',
         status: 'done',
         detail: requested,
       },
       {
         id: 'local-search',
-        label: 'Deep Search verifying project identity in files',
+        label: 'Checking project files',
         status: 'running',
-        detail: 'Matching your request to project names found in accessible documents…',
+        detail: 'Looking for this job in your uploaded project records…',
       },
     ])
     try {
@@ -164,31 +164,31 @@ export function LessonsFlow() {
       }
       setReasoning((prev) => mergeReasoning(prev, data.reasoning || []))
       if (data.matched) {
-        const kind = data.match_kind === 'fuzzy' ? 'Fuzzy match' : 'Verified exact match'
+        const kind = data.match_kind === 'fuzzy' ? 'Close match' : 'Project found'
         const canonical = data.project_name || data.knowledge_name || requested
         setProject(canonical)
         setPassLine(`${kind}: ${canonical}`)
         upsertStep({
           id: 'local-search',
-          label: `${kind} via Deep Search`,
+          label: kind,
           status: 'done',
           detail: data.rationale || canonical,
         })
       } else {
-        setPassLine('Not verified — project not found in accessible Datagrid data')
+        setPassLine('Project not found in your files')
         upsertStep({
           id: 'local-search',
-          label: 'Verification failed — no project match',
+          label: 'Project not found',
           status: 'partial',
-          detail: data.rationale || 'Upload project data to Datagrid and try again',
+          detail: data.rationale || 'Upload this job’s files, then try again',
         })
       }
       setStep('confirm')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not confirm project in Datagrid')
+      setError(err instanceof Error ? err.message : 'Could not check that project')
       upsertStep({
         id: 'local-search',
-        label: 'Project confirmation failed',
+        label: 'Could not check project',
         status: 'error',
         detail: err instanceof Error ? err.message : 'Unknown error',
       })
@@ -200,13 +200,13 @@ export function LessonsFlow() {
   async function discoverAccessibleProjects() {
     setLoading(true)
     setError('')
-    setPassLine('Deep Search is listing projects available in Datagrid…')
+    setPassLine('Listing projects in your files…')
     pushLocalSteps([
       {
         id: 'discover',
-        label: 'Discovering accessible projects',
+        label: 'Looking up available projects',
         status: 'running',
-        detail: 'Scanning Datagrid documents for project names…',
+        detail: 'Scanning uploaded project records for job names…',
       },
     ])
     try {
@@ -217,21 +217,21 @@ export function LessonsFlow() {
       } else {
         upsertStep({
           id: 'discover',
-          label: `Found ${(data.accessible_projects || []).length} accessible project(s)`,
+          label: `Found ${(data.accessible_projects || []).length} project(s)`,
           status: 'done',
           detail: (data.accessible_projects || []).map((p) => p.name).slice(0, 6).join(', '),
         })
       }
       setPassLine(
         data.accessible_projects?.length
-          ? `${data.accessible_projects.length} accessible project(s) found — pick one to verify`
-          : 'No accessible projects found in Datagrid',
+          ? `${data.accessible_projects.length} project(s) found — pick one`
+          : 'No projects found in your files yet',
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not discover projects')
+      setError(err instanceof Error ? err.message : 'Could not list projects')
       upsertStep({
         id: 'discover',
-        label: 'Project discovery failed',
+        label: 'Could not list projects',
         status: 'error',
         detail: err instanceof Error ? err.message : 'Unknown error',
       })
@@ -249,13 +249,13 @@ export function LessonsFlow() {
     }
     setLoading(true)
     setError('')
-    setPassLine('Drafting scope-narrowing questions…')
+    setPassLine('Preparing a few scope questions…')
     pushLocalSteps([
       {
         id: 'scope-start',
-        label: 'Scoping the extraction',
+        label: 'Preparing scope questions',
         status: 'running',
-        detail: `Building guidance questions for ${confirmedName}`,
+        detail: `Getting ready for ${confirmedName}`,
       },
     ])
     try {
@@ -274,13 +274,13 @@ export function LessonsFlow() {
           id: 'scope-start',
           label: 'Scope questions ready',
           status: 'done',
-          detail: `${data.questions.length} questions to narrow extraction guidance`,
+          detail: `${data.questions.length} quick questions before we dig in`,
         })
       }
-      setPassLine(`${data.questions.length} scope questions ready`)
+      setPassLine(`${data.questions.length} questions ready`)
       setStep('questions')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not generate scope questions')
+      setError(err instanceof Error ? err.message : 'Could not prepare scope questions')
     } finally {
       setLoading(false)
     }
@@ -289,13 +289,13 @@ export function LessonsFlow() {
   async function digDeeper() {
     setLoading(true)
     setError('')
-    setPassLine('Asking deeper scope questions…')
+    setPassLine('Adding a few more questions…')
     pushLocalSteps([
       {
         id: `scope-more-${questions.length}`,
-        label: 'Narrowing scope further',
+        label: 'Adding more detail questions',
         status: 'running',
-        detail: 'Generating additional guidance questions…',
+        detail: 'Preparing a couple more questions…',
       },
     ])
     try {
@@ -315,14 +315,14 @@ export function LessonsFlow() {
       } else {
         upsertStep({
           id: `scope-more-${questions.length}`,
-          label: 'Added deeper scope questions',
+          label: 'Added more questions',
           status: 'done',
           detail: `${data.questions.length} more questions`,
         })
       }
-      setPassLine(`Added ${data.questions.length} deeper questions`)
+      setPassLine(`Added ${data.questions.length} more questions`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not generate more questions')
+      setError(err instanceof Error ? err.message : 'Could not add more questions')
     } finally {
       setLoading(false)
     }
@@ -336,16 +336,16 @@ export function LessonsFlow() {
     setPulseNodes([])
     setCompletedPasses(0)
     setCredits(null)
-    setPassLine('Launching correlative orchestrator fan-out…')
+    setPassLine('Starting the project review…')
     setChat([])
     setEndedAt(null)
     setStartedAt(Date.now())
     setStep('analyzing')
     upsertStep({
       id: 'extract-launch',
-      label: 'Starting multi-pass correlative extraction',
+      label: 'Starting project review',
       status: 'running',
-      detail: `Project ${project.trim()} · knowledge ${confirmation.knowledge_name}`,
+      detail: `Reviewing ${project.trim()}`,
     })
 
     try {
@@ -368,7 +368,7 @@ export function LessonsFlow() {
                 ? ` — ${passEvent.summary}`
                 : ''
             setPassLine(
-              `${passEvent.title}: ${passEvent.finding_count} findings (${passEvent.completed}/${passEvent.total})${reasoningBit}`,
+              `${passEvent.title}: ${passEvent.finding_count} lessons (${passEvent.completed}/${passEvent.total})${reasoningBit}`,
             )
             if (passEvent.links?.length) {
               setPulseNodes(passEvent.links)
@@ -380,22 +380,40 @@ export function LessonsFlow() {
           },
         },
       )
-      setResult(data.result)
-      setSummary(data.summary || data.result.text || '')
+      const agentResult =
+        data.result ||
+        ({
+          role: 'lessons_extractor',
+          agent_id: '',
+          agent_name: 'Lessons Learned',
+          text: data.summary || '',
+          conversation_id: null,
+        } satisfies AgentResult)
+      setResult(agentResult)
+      setSummary(data.summary || agentResult.text || '')
       setActions(data.actions || [])
       setFindings(data.findings || [])
       setCredits(data.credits || null)
       setEndedAt(Date.now())
       setPassLine(
         data.credits
-          ? `Finished with ${data.findings?.length || 0} findings · ${data.credits.consumed} credits`
-          : `Finished with ${data.findings?.length || 0} ranked findings`,
+          ? `Done — ${data.findings?.length || 0} lessons · ${data.credits.consumed} credits`
+          : `Done — ${data.findings?.length || 0} lessons ready`,
       )
       setStep('result')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Extraction failed')
+      const detail = err instanceof Error ? err.message : 'Could not finish the review'
+      setError(detail)
       setEndedAt(Date.now())
-      setStep('questions')
+      upsertStep({
+        id: 'extract-launch',
+        label: 'Review did not finish',
+        status: 'error',
+        detail,
+      })
+      setPassLine('Review did not finish — you can try again')
+      // Stay on the reviewing screen so progress/error stay visible.
+      setStep('analyzing')
     } finally {
       setLoading(false)
     }
@@ -408,11 +426,11 @@ export function LessonsFlow() {
     setChat((prev) => [...prev, { role: 'user', text: userText }])
     setLoading(true)
     setError('')
-    setPassLine('Working through your follow-up…')
+    setPassLine('Working on your question…')
     pushLocalSteps([
       {
         id: `chat-${chat.length + 1}`,
-        label: 'Answering follow-up',
+        label: 'Answering your question',
         status: 'running',
         detail: userText.slice(0, 160),
       },
@@ -479,7 +497,7 @@ export function LessonsFlow() {
   const showReasoning = reasoning.length > 0 || loading || step === 'analyzing'
 
   return (
-    <main className="page">
+    <main className={`page${step === 'analyzing' ? ' page-analysis' : ''}`}>
       <section className="panel">
         <div className="progress-row">
           <p className="progress">Lessons Learned · {progress}%</p>
@@ -494,14 +512,14 @@ export function LessonsFlow() {
           <span style={{ width: `${progress}%` }} />
         </div>
 
-        <div className={showReasoning ? 'flow-layout' : undefined}>
+        <div className={showReasoning && step !== 'analyzing' ? 'flow-layout' : undefined}>
           <div className="flow-main">
             {step === 'project' && (
               <>
                 <h2>Which project?</h2>
                 <p className="sub">
-                  Enter a project name for Deep Search to verify in Datagrid files, or
-                  discover which projects you already have access to and pick one.
+                  Type the job name, or show the projects already in your files and pick
+                  one.
                 </p>
                 <div className="field">
                   <label htmlFor="project">Project name</label>
@@ -524,19 +542,19 @@ export function LessonsFlow() {
                     disabled={loading}
                     onClick={discoverAccessibleProjects}
                   >
-                    {loading ? 'Discovering…' : 'Show accessible projects'}
+                    {loading ? 'Looking…' : 'Show my projects'}
                   </button>
                   <button
                     className="btn btn-primary"
                     disabled={loading || !project.trim()}
                     onClick={() => confirmProjectAccess()}
                   >
-                    {loading ? 'Verifying…' : 'Verify in Datagrid'}
+                    {loading ? 'Checking…' : 'Find this project'}
                   </button>
                 </div>
                 {discoveredProjects.length > 0 ? (
                   <div className="alt-list">
-                    <p className="sub">Accessible projects — click to verify:</p>
+                    <p className="sub">Projects in your files — click one:</p>
                     <ul>
                       {discoveredProjects.map((alt) => (
                         <li key={`${alt.knowledge_id || alt.name}`}>
@@ -546,7 +564,7 @@ export function LessonsFlow() {
                             disabled={loading}
                             onClick={() => confirmProjectAccess(alt.name)}
                           >
-                            Verify {alt.name}
+                            Use {alt.name}
                           </button>
                           {alt.notes ? <span className="alt-notes">{alt.notes}</span> : null}
                         </li>
@@ -562,60 +580,58 @@ export function LessonsFlow() {
             {step === 'confirm' && confirmation && (
               <>
                 <h2>
-                  {confirmation.matched ? 'Project verified' : 'Project not verified'}
+                  {confirmation.matched ? 'Project found' : 'Project not found'}
                 </h2>
                 <p className="sub">
                   {confirmation.matched
                     ? confirmation.match_kind === 'fuzzy'
-                      ? 'Fuzzy match — Deep Search found a close project name in your files. Confirm before continuing.'
-                      : 'Deep Search confirmed this project in your accessible Datagrid files.'
-                    : 'Deep Search could not verify that project. Lessons Learned will not continue until a project is verified.'}
+                      ? 'Close match — we found a similar job name in your files. Confirm it’s the right one before continuing.'
+                      : 'We found this job in your project files. Continue when you’re ready.'
+                    : 'We couldn’t find that job in your files. Upload the project records, or pick a project below.'}
                 </p>
 
                 {confirmation.matched ? (
                   <div className="verified-banner">
-                    <span>Verified in Datagrid</span>
+                    <span>Ready to continue</span>
                     <strong>
                       {confirmation.project_name || confirmation.knowledge_name}
                     </strong>
-                    <em>{(confirmation.match_kind || 'exact').toUpperCase()} MATCH</em>
+                    <em>
+                      {(confirmation.match_kind || 'exact') === 'fuzzy'
+                        ? 'CLOSE MATCH'
+                        : 'MATCHED'}
+                    </em>
                   </div>
                 ) : (
                   <div className="upload-callout">
-                    <h3>NOT VERIFIED</h3>
+                    <h3>Not found</h3>
                     <p>
-                      Requested “{confirmation.project}” was not found in accessible
-                      Datagrid data. Upload the project files, then verify again — or
-                      pick an accessible project below.
+                      “{confirmation.project}” isn’t in the project files we can see.
+                      Upload the job folder (drawings, RFIs, meetings, changes, etc.),
+                      then try again — or pick a project below.
                     </p>
                   </div>
                 )}
 
                 <div className="confirm-card">
                   <p>
-                    <span>Requested</span>
+                    <span>You entered</span>
                     <strong>{confirmation.project}</strong>
                   </p>
                   <p>
-                    <span>Verification</span>
+                    <span>Match</span>
                     <strong className={`match-kind kind-${confirmation.match_kind || 'none'}`}>
                       {confirmation.matched
-                        ? `${(confirmation.match_kind || 'exact').toUpperCase()} · ${
+                        ? `${
+                            (confirmation.match_kind || 'exact') === 'fuzzy'
+                              ? 'CLOSE'
+                              : 'EXACT'
+                          } · ${
                             confirmation.project_name || confirmation.knowledge_name
                           }`
-                        : 'NOT VERIFIED'}
+                        : 'NOT FOUND'}
                     </strong>
                   </p>
-                  <p>
-                    <span>Confidence</span>
-                    <strong>{confirmation.confidence || 'low'}</strong>
-                  </p>
-                  {confirmation.knowledge_name ? (
-                    <p>
-                      <span>Knowledge source</span>
-                      <strong>{confirmation.knowledge_name}</strong>
-                    </p>
-                  ) : null}
                   {confirmation.rationale ? (
                     <p className="confirm-rationale">{confirmation.rationale}</p>
                   ) : null}
@@ -631,8 +647,8 @@ export function LessonsFlow() {
                 <div className="alt-list">
                   <p className="sub">
                     {confirmation.matched
-                      ? 'Other accessible projects (click to re-verify):'
-                      : 'Projects currently accessible in Datagrid (click to verify):'}
+                      ? 'Or switch to another project:'
+                      : 'Projects we can see in your files:'}
                   </p>
                   {(confirmation.accessible_projects?.length ||
                     discoveredProjects.length ||
@@ -654,7 +670,7 @@ export function LessonsFlow() {
                               disabled={loading}
                               onClick={() => confirmProjectAccess(name)}
                             >
-                              Verify {name}
+                              Use {name}
                             </button>
                             {notes ? <span className="alt-notes">{notes}</span> : null}
                           </li>
@@ -663,23 +679,19 @@ export function LessonsFlow() {
                     </ul>
                   ) : (
                     <p className="confirm-rationale">
-                      No accessible project names were returned from Datagrid.
+                      No project names turned up yet. Upload job files and try again.
                     </p>
                   )}
                 </div>
 
                 {confirmation.matched && confirmation.match_kind === 'fuzzy' ? (
                   <div className="upload-callout">
-                    <h3>Fuzzy match — confirm carefully</h3>
+                    <h3>Double-check this job</h3>
                     <p>
-                      {confirmation.next_step ||
-                        'Continue only if this is the correct project. Otherwise pick another accessible project and verify it.'}
+                      Continue only if this is the right project. Otherwise pick another
+                      one from the list.
                     </p>
                   </div>
-                ) : confirmation.matched && confirmation.next_step ? (
-                  <p className="confirm-rationale">{confirmation.next_step}</p>
-                ) : !confirmation.matched && confirmation.next_step ? (
-                  <p className="confirm-rationale">{confirmation.next_step}</p>
                 ) : null}
 
                 <div className="actions">
@@ -698,7 +710,7 @@ export function LessonsFlow() {
                     disabled={loading}
                     onClick={discoverAccessibleProjects}
                   >
-                    {loading ? 'Discovering…' : 'Refresh accessible projects'}
+                    {loading ? 'Looking…' : 'Refresh project list'}
                   </button>
                   {confirmation.matched ? (
                     <button
@@ -707,10 +719,10 @@ export function LessonsFlow() {
                       onClick={startScopeQuestions}
                     >
                       {loading
-                        ? 'Scoping…'
+                        ? 'Getting ready…'
                         : confirmation.match_kind === 'fuzzy'
-                          ? 'Accept fuzzy match & continue'
-                          : 'Continue with verified project'}
+                          ? 'Yes, continue'
+                          : 'Continue'}
                     </button>
                   ) : null}
                 </div>
@@ -721,16 +733,15 @@ export function LessonsFlow() {
 
             {step === 'questions' && currentQuestion && (
               <>
-                <h2>Narrow the scope</h2>
+                <h2>A few quick questions</h2>
                 <p className="sub">
                   Question {qIndex + 1} of {questions.length} for{' '}
-                  <strong>{confirmation?.knowledge_name || project}</strong>. Help the
-                  extractor confirm the guidance it needs — phases, artifact weight, and
-                  how to verify lessons.
+                  <strong>{confirmation?.project_name || project}</strong>. Short answers
+                  help us focus on the right phase, trades, and records.
                 </p>
                 <p className="question-title">{currentQuestion}</p>
                 <div className="field">
-                  <label htmlFor="answer">Your guidance</label>
+                  <label htmlFor="answer">Your answer</label>
                   <textarea
                     id="answer"
                     value={currentAnswer}
@@ -741,7 +752,7 @@ export function LessonsFlow() {
                         return next
                       })
                     }
-                    placeholder="e.g. Focus buyout + RFIs in Phase 2; verify lessons by recurrence across meetings and change events…"
+                    placeholder="e.g. Focus Phase 2 buyout and RFIs; look hardest at meetings and change events…"
                   />
                 </div>
                 <div className="actions">
@@ -770,14 +781,14 @@ export function LessonsFlow() {
                         disabled={loading || !currentAnswer.trim()}
                         onClick={digDeeper}
                       >
-                        {loading ? 'Asking more…' : 'Dig deeper'}
+                        {loading ? 'Asking more…' : 'Ask me more'}
                       </button>
                       <button
                         className="btn btn-primary"
                         disabled={loading || !currentAnswer.trim()}
                         onClick={runExtract}
                       >
-                        Extract lessons
+                        Find lessons
                       </button>
                     </>
                   )}
@@ -789,11 +800,11 @@ export function LessonsFlow() {
 
             {step === 'analyzing' && (
               <>
-                <h2>Running correlative extraction</h2>
+                <h2>Reviewing the job</h2>
                 <p className="sub">
-                  The orchestrator is fanning out twenty specialized scans across{' '}
-                  {confirmation?.knowledge_name || project}, joining buried signals, then
-                  synthesizing the top 50 hard-to-find findings.
+                  Checking RFIs, meetings, changes, and other records on{' '}
+                  {confirmation?.project_name || project} for lessons that usually get
+                  missed. This can take a few minutes — leave the tab open.
                 </p>
                 <div className="analysis-layout">
                   <ConnectivityGraph
@@ -805,27 +816,43 @@ export function LessonsFlow() {
                   <ReasoningSteps
                     steps={reasoning}
                     passLine={passLine}
-                    title="Generative reasoning"
+                    title="Progress"
                   />
                 </div>
                 <p className="status-line">
-                  {loading ? 'Agents working — keep this tab open…' : ''}
+                  {loading ? 'Still working — leave this tab open…' : passLine}
                 </p>
-                {error && <p className="error">{error}</p>}
+                {error ? <p className="error">{error}</p> : null}
+                {!loading && error ? (
+                  <div className="actions">
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        setError('')
+                        setStep('questions')
+                      }}
+                    >
+                      Back to questions
+                    </button>
+                    <button className="btn btn-primary" onClick={runExtract}>
+                      Try again
+                    </button>
+                  </div>
+                ) : null}
               </>
             )}
 
-            {step === 'result' && result && (
+            {step === 'result' && (result || findings.length > 0 || summary) && (
               <>
-                <h2>Extracted lessons</h2>
+                <h2>Lessons found</h2>
                 <p className="sub">
-                  {confirmation?.knowledge_name || project}. Cross-correlated across 20
-                  analysis passes for buried, multi-source findings. Ask follow-ups below.
+                  Top lessons for {confirmation?.project_name || project}. Ask a follow-up
+                  if you want to dig into any of them.
                 </p>
                 {summary ? <div className="result summary-block">{summary}</div> : null}
                 {actions.length > 0 && (
                   <div className="actions-block">
-                    <h3>Institutional actions</h3>
+                    <h3>What to do next</h3>
                     <ol>
                       {actions.map((action) => (
                         <li key={action}>{action}</li>
@@ -840,18 +867,18 @@ export function LessonsFlow() {
                   <div className="chat-log">
                     {chat.map((turn, index) => (
                       <div key={`${turn.role}-${index}`} className={`chat-turn ${turn.role}`}>
-                        <span>{turn.role === 'user' ? 'You' : 'Extractor'}</span>
+                        <span>{turn.role === 'user' ? 'You' : 'Lessons'}</span>
                         <p>{turn.text}</p>
                       </div>
                     ))}
                   </div>
                   <div className="field">
-                    <label htmlFor="message">Follow-up question</label>
+                    <label htmlFor="message">Your question</label>
                     <textarea
                       id="message"
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Which buried correlations should we institutionalize first?"
+                      placeholder="Which lessons should we carry into the next buyout?"
                     />
                   </div>
                   <div className="actions">
@@ -863,7 +890,7 @@ export function LessonsFlow() {
                       disabled={loading || !message.trim()}
                       onClick={sendFollowup}
                     >
-                      {loading ? 'Thinking…' : 'Send'}
+                      {loading ? 'Working…' : 'Send'}
                     </button>
                   </div>
                   <p className="status-line">{passLine}</p>

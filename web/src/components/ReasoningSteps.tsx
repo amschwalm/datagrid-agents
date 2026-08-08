@@ -10,7 +10,7 @@ type Props = {
 export function ReasoningSteps({
   steps,
   passLine,
-  title = 'Live reasoning',
+  title = "What's happening",
 }: Props) {
   const endRef = useRef<HTMLLIElement | null>(null)
 
@@ -22,10 +22,10 @@ export function ReasoningSteps({
     <div className="reasoning">
       <div className="reasoning-head">
         <h3>{title}</h3>
-        {passLine ? <p>{passLine}</p> : <p>Watch each check as it happens.</p>}
+        {passLine ? <p>{passLine}</p> : <p>Status updates show up here as work runs.</p>}
       </div>
       {steps.length === 0 ? (
-        <p className="reasoning-empty">Waiting for the next reasoning step…</p>
+        <p className="reasoning-empty">Waiting to start…</p>
       ) : (
         <ol className="reasoning-list">
           {steps.map((step, index) => (

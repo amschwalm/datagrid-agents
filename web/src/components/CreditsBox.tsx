@@ -17,7 +17,7 @@ export function CreditsBox({ credits }: Props) {
     <div className="credits-box" aria-live="polite">
       <div className="credits-box-head">
         <h3>Credits used</h3>
-        <p>Datagrid usage for this extraction run</p>
+        <p>Usage for this lessons run</p>
       </div>
       <p className="credits-total">
         <strong>{formatCredits(credits.consumed)}</strong>

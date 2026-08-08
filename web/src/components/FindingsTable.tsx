@@ -8,19 +8,19 @@ export function FindingsTable({ findings }: Props) {
   return (
     <div className="findings-wrap">
       <div className="findings-meta">
-        <h3>Top {findings.length} findings</h3>
-        <p>Structured table — not markdown</p>
+        <h3>Top {findings.length} lessons</h3>
+        <p>Ranked from the project records</p>
       </div>
       <div className="findings-scroll">
         <table className="findings-table">
           <thead>
             <tr>
               <th>#</th>
-              <th>Finding</th>
+              <th>Lesson</th>
               <th>Category</th>
               <th>Evidence</th>
-              <th>Why buried</th>
-              <th>Recommendation</th>
+              <th>Why it was easy to miss</th>
+              <th>What to do</th>
               <th>Priority</th>
               <th>Sources</th>
             </tr>

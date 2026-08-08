@@ -227,11 +227,28 @@ function parseSseChunk(
     if (!dataLines.length) continue
     try {
       onEvent(event, JSON.parse(dataLines.join('\n')))
-    } catch {
-      // ignore malformed chunks
+    } catch (err) {
+      // Result payloads are large — surface parse failures instead of dropping them.
+      if (event === 'result' || event === 'error') {
+        onEvent('error', {
+          detail:
+            err instanceof Error
+              ? `Could not read ${event} from the server: ${err.message}`
+              : `Could not read ${event} from the server`,
+        })
+      }
     }
   }
   return rest
+}
+
+function flushSseBuffer(
+  buffer: string,
+  onEvent: (event: string, data: unknown) => void,
+): void {
+  const trimmed = buffer.trim()
+  if (!trimmed) return
+  parseSseChunk(trimmed.endsWith('\n\n') ? trimmed : `${trimmed}\n\n`, onEvent)
 }
 
 export type ExtractPayload = {
@@ -263,7 +280,7 @@ export async function streamExtractLessons(
     })
   } catch (err) {
     throw new Error(
-      `Could not reach API at ${streamUrl}. Is uvicorn running on port 8000? (${
+      `Could not reach the app server at ${streamUrl}. Is it running on port 8000? (${
         err instanceof Error ? err.message : 'network error'
       })`,
     )
@@ -302,29 +319,34 @@ export async function streamExtractLessons(
   let finalResult: LessonsExtractResult | null = null
   let streamError = ''
 
+  const handleEvent = (event: string, data: unknown) => {
+    const payloadData = data as Record<string, unknown>
+    if (event === 'step') handlers.onStep?.(payloadData as ReasoningStep)
+    if (event === 'pass') handlers.onPass?.(payloadData as PassEvent)
+    if (event === 'link') handlers.onLink?.(payloadData as LinkEvent)
+    if (event === 'result') {
+      finalResult = payloadData as LessonsExtractResult
+      handlers.onResult?.(finalResult)
+    }
+    if (event === 'error') {
+      streamError = String(payloadData.detail || 'Extraction failed')
+      handlers.onError?.(streamError)
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    buffer = parseSseChunk(buffer, (event, data) => {
-      const payloadData = data as Record<string, unknown>
-      if (event === 'step') handlers.onStep?.(payloadData as ReasoningStep)
-      if (event === 'pass') handlers.onPass?.(payloadData as PassEvent)
-      if (event === 'link') handlers.onLink?.(payloadData as LinkEvent)
-      if (event === 'result') {
-        finalResult = payloadData as LessonsExtractResult
-        handlers.onResult?.(finalResult)
-      }
-      if (event === 'error') {
-        streamError = String(payloadData.detail || 'Extraction failed')
-        handlers.onError?.(streamError)
-      }
-    })
+    buffer = parseSseChunk(buffer, handleEvent)
   }
+  // Flush decoder + any trailing SSE frame that arrived without a final read.
+  buffer += decoder.decode()
+  flushSseBuffer(buffer, handleEvent)
 
+  if (finalResult) return finalResult
   if (streamError) throw new Error(streamError)
-  if (!finalResult) throw new Error('Extraction finished without a result')
-  return finalResult
+  throw new Error('Review finished without lessons — try Find lessons again')
 }
 
 export function continueLessons(payload: {

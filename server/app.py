@@ -178,8 +178,32 @@ Return ONLY valid JSON:
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
-    payload = json.dumps(data, ensure_ascii=False)
+    payload = json.dumps(data, ensure_ascii=False, default=str)
     return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _client_extract_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep the streamed result small — omit bulky pass transcripts."""
+    return {
+        "summary": payload.get("summary") or "",
+        "actions": payload.get("actions") or [],
+        "findings": payload.get("findings") or [],
+        "pass_count": payload.get("pass_count"),
+        "passes_completed": payload.get("passes_completed"),
+        "aggregated_locally": payload.get("aggregated_locally"),
+        "project": payload.get("project"),
+        "knowledge_name": payload.get("knowledge_name"),
+        "credits": payload.get("credits"),
+        "graph_nodes": payload.get("graph_nodes") or [],
+        "result": payload.get("result")
+        or {
+            "role": "lessons_extractor",
+            "agent_id": "",
+            "agent_name": "Lessons Learned",
+            "text": payload.get("summary") or "",
+            "conversation_id": None,
+        },
+    }
 
 
 @app.get("/api/health")
@@ -523,22 +547,24 @@ def lessons_extract_stream(body: LessonsRequest) -> StreamingResponse:
                 "step",
                 {
                     "id": "start",
-                    "label": f"Starting correlative extraction for {project}",
+                    "label": f"Starting project review for {project}",
                     "status": "running",
-                    "detail": "Orchestrator fan-out: 20 analysis calls + buried-pattern aggregate",
+                    "detail": "Checking project records across sources",
                 },
             )
             payload = _run_lessons_job(body, emit)
+            # Emit the compact result before any trailing status so the client
+            # always receives lessons even if the stream closes early afterward.
+            emit("result", {"ok": True, **_client_extract_payload(payload)})
             emit(
                 "step",
                 {
                     "id": "start",
-                    "label": f"Extraction finished for {project}",
+                    "label": f"Review finished for {project}",
                     "status": "done",
-                    "detail": "Pipeline finished",
+                    "detail": f"{len(payload.get('findings') or [])} lessons ready",
                 },
             )
-            emit("result", {"ok": True, **payload})
         except Exception as exc:  # noqa: BLE001
             emit("error", {"detail": str(exc)})
         finally:

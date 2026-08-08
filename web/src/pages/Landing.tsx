@@ -3,15 +3,15 @@ import { Link } from 'react-router-dom'
 export function Landing() {
   return (
     <main className="page hero">
-      <p className="hero-kicker">Datagrid · Project closeout</p>
+      <p className="hero-kicker">Project closeout</p>
       <h1>Lessons Learned</h1>
       <p className="hero-lead">
-        Confirm the project in Datagrid knowledge, narrow the scope, then run a
-        correlative multi-pass extraction that surfaces buried findings across sources.
+        Pick a project, answer a few quick scope questions, then pull hard-to-spot
+        lessons from RFIs, meetings, changes, and the rest of the job file.
       </p>
       <div className="cta-row">
         <Link className="btn btn-primary" to="/extract">
-          Start extraction
+          Start
         </Link>
       </div>
     </main>

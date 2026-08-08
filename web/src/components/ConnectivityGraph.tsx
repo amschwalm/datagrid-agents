@@ -91,12 +91,12 @@ export function ConnectivityGraph({
   return (
     <div className="connectivity">
       <div className="connectivity-meta">
-        <span>Project graph</span>
+        <span>Project sources</span>
         <span>
-          {completedPasses}/{totalPasses} passes linked
+          {completedPasses}/{totalPasses} reviews done
         </span>
       </div>
-      <svg viewBox="0 0 400 400" className="connectivity-svg" role="img" aria-label="Connectivity graph">
+      <svg viewBox="0 0 400 400" className="connectivity-svg" role="img" aria-label="Project sources graph">
         <defs>
           <marker
             id="flow-arrow"

@@ -6,7 +6,7 @@ export function Layout() {
       <header className="site-header">
         <Link to="/" className="brand">
           Lessons Learned
-          <span>Datagrid</span>
+          <span>Closeout</span>
         </Link>
         <nav style={{ display: 'flex', gap: '1.25rem' }}>
           <Link className="nav-link" to="/extract">
