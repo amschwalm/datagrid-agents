@@ -98,13 +98,11 @@ export async function checkApiHealth(): Promise<{
 }
 
 export function generateFollowups(payload: {
-  mode: 'lessons' | 'mentor'
   prompt: string
   prior?: QAItem[]
 }) {
   return request<{
     ok: boolean
-    mode: 'lessons' | 'mentor'
     questions: string[]
     used_fallback: boolean
   }>('/api/context/followups', payload)
@@ -245,26 +243,4 @@ export function continueLessons(payload: {
     actions?: string[] | null
     findings: Finding[]
   }>('/api/lessons/continue', payload)
-}
-
-export function startMentor(payload: {
-  prompt: string
-  followups: QAItem[]
-}) {
-  return request<{ ok: boolean; mentor: AgentResult; helper: AgentResult }>(
-    '/api/mentor/session',
-    payload,
-  )
-}
-
-export function continueMentor(payload: {
-  conversation_id?: string | null
-  helper_conversation_id?: string | null
-  message: string
-  prompt?: string
-}) {
-  return request<{ ok: boolean; mentor: AgentResult; helper: AgentResult }>(
-    '/api/mentor/continue',
-    payload,
-  )
 }

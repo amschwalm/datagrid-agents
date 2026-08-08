@@ -7,22 +7,13 @@ import re
 from typing import Any
 
 
-DEFAULT_FOLLOWUPS: dict[str, list[str]] = {
-    "lessons": [
-        "What project, phase, or workstream is this about?",
-        "What actually happened versus what was planned?",
-        "What drove the biggest cost, schedule, quality, or safety impact?",
-        "Where did coordination or handoffs break down?",
-        "What should the next team know on day one?",
-    ],
-    "mentor": [
-        "What decision or problem do you need help with right now?",
-        "What constraints are fixed (budget, contract, politics, schedule)?",
-        "What have you already tried?",
-        "What happens if this goes poorly in the next 30 days?",
-        "What would a good outcome look like?",
-    ],
-}
+DEFAULT_FOLLOWUPS: list[str] = [
+    "What project, phase, or workstream is this about?",
+    "What actually happened versus what was planned?",
+    "What drove the biggest cost, schedule, quality, or safety impact?",
+    "Where did coordination or handoffs break down?",
+    "What should the next team know on day one?",
+]
 
 
 def parse_questions(text: str) -> list[str]:

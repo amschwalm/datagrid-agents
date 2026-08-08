@@ -68,7 +68,6 @@ export function LessonsFlow() {
     setError('')
     try {
       const data = await generateFollowups({
-        mode: 'lessons',
         prompt: prompt.trim(),
       })
       setQuestions(data.questions)
@@ -87,7 +86,6 @@ export function LessonsFlow() {
     setError('')
     try {
       const data = await generateFollowups({
-        mode: 'lessons',
         prompt: prompt.trim(),
         prior: collected(),
       })
@@ -200,7 +198,7 @@ export function LessonsFlow() {
   return (
     <main className="page">
       <section className="panel">
-        <p className="progress">Lessons learned extractor · {progress}%</p>
+        <p className="progress">Lessons Learned · {progress}%</p>
         <div className="progress-bar">
           <span style={{ width: `${progress}%` }} />
         </div>
@@ -377,9 +375,6 @@ export function LessonsFlow() {
                 >
                   {loading ? 'Thinking…' : 'Send'}
                 </button>
-                <Link className="btn" to="/mentor">
-                  Ask the mentor
-                </Link>
               </div>
               <p className="status-line">{loading ? 'Updating lessons conversation…' : ''}</p>
               {error && <p className="error">{error}</p>}

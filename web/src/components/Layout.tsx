@@ -5,15 +5,12 @@ export function Layout() {
     <div className="app-shell">
       <header className="site-header">
         <Link to="/" className="brand">
-          Construction Lessons Learned
+          Lessons Learned
           <span>Datagrid</span>
         </Link>
         <nav style={{ display: 'flex', gap: '1.25rem' }}>
-          <Link className="nav-link" to="/lessons">
-            Lessons
-          </Link>
-          <Link className="nav-link" to="/mentor">
-            Mentor
+          <Link className="nav-link" to="/extract">
+            Extract
           </Link>
         </nav>
       </header>
