@@ -50,15 +50,28 @@ export type LessonsExtractResult = {
   result: AgentResult
 }
 
+// In local Vite dev, call FastAPI directly so SSE/multipass isn't broken by the proxy.
+const API_BASE = (
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
+).replace(/\/$/, '')
+
+function apiUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return `${API_BASE}${path}`
+}
+
 async function request<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const url = apiUrl(path)
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(data.detail || data.error || `Request failed (${res.status})`)
+    const detail = data.detail || data.error || `Request failed (${res.status})`
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
   }
   return data as T
 }
@@ -69,6 +82,19 @@ export type AgentResult = {
   agent_name: string
   text: string
   conversation_id?: string | null
+}
+
+export async function checkApiHealth(): Promise<{
+  status: string
+  version?: string
+  routes?: string[]
+}> {
+  const res = await fetch(apiUrl('/api/health'))
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(`API health failed (${res.status}) at ${apiUrl('/api/health')}`)
+  }
+  return data
 }
 
 export function generateFollowups(payload: {
@@ -116,27 +142,62 @@ function parseSseChunk(
   return rest
 }
 
+async function extractLessonsDirect(payload: {
+  prompt: string
+  answers: QAItem[]
+}): Promise<LessonsExtractResult> {
+  return request<LessonsExtractResult>('/api/lessons/extract', payload)
+}
+
 export async function streamExtractLessons(
   payload: { prompt: string; answers: QAItem[] },
   handlers: StreamHandlers,
 ): Promise<LessonsExtractResult> {
-  const res = await fetch('/api/lessons/extract/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify(payload),
-  })
+  const streamUrl = apiUrl('/api/lessons/extract/stream')
+  let res: Response
+  try {
+    res = await fetch(streamUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(payload),
+    })
+  } catch (err) {
+    throw new Error(
+      `Could not reach API at ${streamUrl}. Is uvicorn running on port 8000? (${
+        err instanceof Error ? err.message : 'network error'
+      })`,
+    )
+  }
+
+  // If streaming route is unavailable, fall back to the blocking multipass endpoint.
+  if (res.status === 404) {
+    handlers.onStep?.({
+      id: 'fallback',
+      label: 'Stream route unavailable — using direct extract',
+      status: 'running',
+      detail: streamUrl,
+    })
+    const result = await extractLessonsDirect(payload)
+    handlers.onStep?.({
+      id: 'fallback',
+      label: 'Direct extract complete',
+      status: 'done',
+      detail: `${result.findings?.length || 0} findings`,
+    })
+    handlers.onResult?.(result)
+    return result
+  }
+
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}))
-    if (res.status === 404) {
-      throw new Error(
-        'API route missing (/api/lessons/extract/stream). Restart the API from latest main on port 8000.',
-      )
-    }
+    // 404 is handled above via fallback to /api/lessons/extract.
     const detail = data.detail || data.error || `Request failed (${res.status})`
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    throw new Error(
+      `${typeof detail === 'string' ? detail : JSON.stringify(detail)} [${streamUrl}]`,
+    )
   }
 
   const reader = res.body.getReader()

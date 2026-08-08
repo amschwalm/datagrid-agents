@@ -184,8 +184,19 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    routes = sorted(
+        {
+            getattr(route, "path", "")
+            for route in app.routes
+            if getattr(route, "path", "").startswith("/api/")
+        }
+    )
+    return {
+        "status": "ok",
+        "version": app.version,
+        "routes": routes,
+    }
 
 
 @app.post("/api/context/followups")

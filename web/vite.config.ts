@@ -12,9 +12,9 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        // Multi-pass extraction streams for several minutes
-        timeout: 0,
-        proxyTimeout: 0,
+        // Long-running multipass extraction / SSE
+        timeout: 1_800_000,
+        proxyTimeout: 1_800_000,
       },
     },
   },
