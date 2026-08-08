@@ -14,6 +14,7 @@ Datagrid agents own domain judgment and knowledge search.
 - A construction workflow needs lessons learned + schedule + change-order views
 - Local files/code should supplement Datagrid prompts
 - Follow-on work must happen in the repo (write checklist, open PR, run tests)
+- The **datagrid** Cursor subagent (`.cursor/agents/datagrid.md`) is active — it should always load this skill
 
 ## Quick commands
 

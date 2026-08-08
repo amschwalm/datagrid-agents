@@ -91,6 +91,8 @@ Hardening defaults:
 
 Cursor skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
 
+Cursor subagent: `.cursor/agents/datagrid.md` — use the **datagrid** agent / `/datagrid` so chats route construction/knowledge work through the orchestrator.
+
 Role IDs live in `src/datagrid_agents/orchestrator/agents.yaml` (override with `DATAGRID_AGENT_<ROLE>`).
 
 ## Included agents
