@@ -39,6 +39,14 @@ For **new agents** or custom combos (including calling the same agent multiple t
   -p "<user goal>"
 ```
 
+For **natural-language DAG composition** (multi-stage, prior outputs fed forward):
+
+```bash
+.venv/bin/datagrid-agents compose \
+  -p "Review RFI-12, then synthesize mentor + schedule risks" \
+  --mode auto
+```
+
 Or use the skill wrapper:
 
 ```bash
@@ -51,17 +59,21 @@ python .cursor/skills/datagrid-orchestrator/scripts/run_workflow.py \
 ## Operating procedure
 
 1. **Clarify the goal** — package/trade, decision needed, and any local files.
-2. **Pick a workflow** — named playbook when it fits; otherwise `fanout --roles ...`.
-3. **Register new agents** — add to `agents.yaml` or set `DATAGRID_AGENT_<ROLE>`; then use `fanout` immediately.
-4. **Attach local context** — use `-c` for notes, packets, schedule snippets, or open questions.
-5. **Run orchestration** — `datagrid-agents orchestrate <workflow>`.
-6. **Synthesize** — read merged markdown/JSON under `.orchestrator/runs/`. Deduplicate findings across agents.
-7. **Differential Cursor ops** — after Datagrid returns:
+2. **Pick a path**
+   - Named playbook when it fits (`utility_buyout_risks`, `rfi_packet_qa`, `submittal_disposition`)
+   - `fanout --roles ...` for explicit role lists / repeats
+   - `compose -p "..."` for open-ended or multi-step natural-language goals (DAG)
+3. **For compose goals** — optionally `--plan-only` first, edit the DAG JSON if needed, then `compose --dag plan.json`.
+4. **Register new agents** — add to `agents.yaml` or set `DATAGRID_AGENT_<ROLE>`; then use `fanout` or include the role in a composed DAG.
+5. **Attach local context** — use `-c` for notes, packets, schedule snippets, or open questions.
+6. **Run orchestration** — `datagrid-agents orchestrate <workflow>` or `datagrid-agents compose ...`.
+7. **Synthesize** — read merged markdown/JSON under `.orchestrator/runs/`. Deduplicate findings across agents/stages.
+8. **Differential Cursor ops** — after Datagrid returns:
    - write a checklist or risk register into the repo
    - compare claims against local files
    - run tests/scripts
    - open a PR with artifacts
-8. **Follow up** — reuse `conversation_id` values from the run JSON when continuing with one agent. Multi-pass same-agent: `fanout --roles mentor --repeat 2`.
+9. **Follow up** — reuse `conversation_id` values from the run JSON when continuing with one agent. Multi-pass same-agent: `fanout --roles mentor --repeat 2`.
 
 ## Guardrails
 

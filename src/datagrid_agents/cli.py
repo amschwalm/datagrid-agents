@@ -8,7 +8,12 @@ import sys
 from pathlib import Path
 
 from datagrid_agents.client import MissingApiKeyError
-from datagrid_agents.orchestrator import list_roles, list_workflows, run_workflow
+from datagrid_agents.orchestrator import (
+    list_roles,
+    list_workflows,
+    run_compose,
+    run_workflow,
+)
 from datagrid_agents.registry import list_definitions, load_definition
 from datagrid_agents import service
 
@@ -121,6 +126,37 @@ def cmd_orchestrate(args: argparse.Namespace) -> int:
         context_paths=args.context or None,
         roles=roles,
         repeats=args.repeat,
+        max_workers=args.max_workers,
+        runs_dir=None if args.no_save else Path(args.runs_dir),
+    )
+    if args.json:
+        print(json.dumps(run.to_dict(), indent=2))
+    else:
+        print(run.markdown)
+    return 0 if run.ok else 1
+
+
+def cmd_compose(args: argparse.Namespace) -> int:
+    prompt = args.prompt or ""
+    if args.file:
+        prompt = Path(args.file).read_text(encoding="utf-8")
+
+    plan = None
+    if args.dag:
+        plan = json.loads(Path(args.dag).read_text(encoding="utf-8"))
+
+    if plan is None and not str(prompt).strip():
+        print("Provide --prompt/--file and/or --dag.", file=sys.stderr)
+        return 2
+
+    mode = "llm" if args.llm else args.mode
+    run = run_compose(
+        prompt,
+        context_paths=args.context or None,
+        mode=mode,
+        planner_role=args.planner_role,
+        plan=plan,
+        plan_only=args.plan_only,
         max_workers=args.max_workers,
         runs_dir=None if args.no_save else Path(args.runs_dir),
     )
@@ -288,6 +324,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON instead of markdown",
     )
     p_orch.set_defaults(func=cmd_orchestrate)
+
+    p_compose = sub.add_parser(
+        "compose",
+        help="Compose a multi-stage Datagrid DAG from natural language and run it",
+    )
+    p_compose.add_argument("--prompt", "-p", help="Natural-language goal")
+    p_compose.add_argument("--file", "-f", help="Read goal from a file")
+    p_compose.add_argument(
+        "--context",
+        "-c",
+        action="append",
+        default=[],
+        help="Local file or directory to attach (repeatable)",
+    )
+    p_compose.add_argument(
+        "--mode",
+        choices=["auto", "heuristic", "llm"],
+        default="auto",
+        help="Planner mode (default: auto)",
+    )
+    p_compose.add_argument(
+        "--llm",
+        action="store_true",
+        help="Force LLM planner mode (shortcut for --mode llm)",
+    )
+    p_compose.add_argument(
+        "--planner-role",
+        default="mentor",
+        help="Role used for LLM planning (default: mentor)",
+    )
+    p_compose.add_argument(
+        "--dag",
+        help="Execute a precomputed DAG JSON file instead of planning",
+    )
+    p_compose.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="Print/save the composed plan without calling specialty agents",
+    )
+    p_compose.add_argument(
+        "--max-workers",
+        type=int,
+        default=3,
+        help="Max parallel Datagrid calls per stage (default: 3)",
+    )
+    p_compose.add_argument(
+        "--runs-dir",
+        default=".orchestrator/runs",
+        help="Directory for run artifacts (default: .orchestrator/runs)",
+    )
+    p_compose.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Do not write run artifacts to disk",
+    )
+    p_compose.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of markdown",
+    )
+    p_compose.set_defaults(func=cmd_compose)
 
     return parser
 

@@ -63,6 +63,35 @@ Supports calling the **same role multiple times** with `--repeat N` (distinct pa
   -p "First pass: underground risk. Second pass: commercial/contract risk."
 ```
 
+## `compose` (natural-language DAG)
+
+Compose a multi-stage DAG from a free-form goal, then execute stage-by-stage (parallel within a stage, sequenced by `depends_on`). Later stages can receive prior outputs (`include_prior`).
+
+Planner modes:
+- `heuristic` — local keyword/intent rules (fast, deterministic)
+- `llm` — ask a Datagrid planner role (default `mentor`) for JSON DAG
+- `auto` — heuristic first; use LLM when the goal looks multi-step/open-ended
+
+```bash
+# Plan only
+.venv/bin/datagrid-agents compose \
+  -p "Review RFI-12, then summarize lessons and schedule risk" \
+  --mode auto \
+  --plan-only
+
+# Plan + execute
+.venv/bin/datagrid-agents compose \
+  -p "First gather drawing/spec evidence, then synthesize mentor + schedule risks" \
+  -c ./packets/rfi-12 \
+  --mode auto
+
+# Force LLM planner
+.venv/bin/datagrid-agents compose -p "..." --llm
+
+# Execute a Cursor-edited DAG JSON
+.venv/bin/datagrid-agents compose --dag ./plan.json
+```
+
 ## Adding a named workflow
 
 1. Create `src/datagrid_agents/orchestrator/workflows/<name>.py` with `build_calls(prompt, context)`.

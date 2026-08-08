@@ -74,9 +74,14 @@ datagrid-agents orchestrate submittal_disposition -p "Disposition 03 30 00" -c .
 datagrid-agents orchestrate fanout --roles mentor,rfi --repeat 1 -p "Pressure-test this buyout"
 # Same agent, multiple passes:
 datagrid-agents orchestrate fanout --roles mentor --repeat 2 -p "Pass 1 underground; pass 2 commercial"
+
+# Natural-language DAG composition (plan and/or execute multi-stage graphs)
+datagrid-agents compose -p "Review RFI-12, then synthesize mentor + schedule risks" --plan-only
+datagrid-agents compose -p "First gather drawing evidence, then synthesize risks" --mode auto
+datagrid-agents compose --dag ./plan.json
 ```
 
-Named playbooks fan out parallel Datagrid converse calls, attach local file context, run lightweight local differential checks where relevant, and write artifacts under `.orchestrator/runs/`.
+Named playbooks fan out parallel Datagrid converse calls, attach local file context, run lightweight local differential checks where relevant, and write artifacts under `.orchestrator/runs/`. `compose` builds a multi-stage DAG from natural language (heuristic and/or LLM planner).
 
 Cursor skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
 

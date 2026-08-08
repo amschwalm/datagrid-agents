@@ -20,6 +20,8 @@ class OrchestratorRun:
     results: list[dict[str, Any]] = field(default_factory=list)
     markdown: str = ""
     ok: bool = True
+    plan: dict[str, Any] | None = None
+    stages: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -32,6 +34,8 @@ def merge_results(
     results: list[AgentResult],
     context: str = "",
     title: str | None = None,
+    plan: dict[str, Any] | None = None,
+    stages: list[dict[str, Any]] | None = None,
 ) -> OrchestratorRun:
     """Combine agent answers into markdown + JSON-friendly payload."""
     created_at = datetime.now(timezone.utc).isoformat()
@@ -46,6 +50,36 @@ def merge_results(
         prompt.strip() or "(empty)",
         "",
     ]
+    if plan:
+        sections.extend(
+            [
+                "## Composed DAG",
+                "",
+                f"- planner: `{plan.get('planner', 'unknown')}`",
+            ]
+        )
+        if plan.get("rationale"):
+            sections.append(f"- rationale: {plan['rationale']}")
+        for stage in plan.get("stages") or []:
+            deps = ", ".join(stage.get("depends_on") or []) or "(none)"
+            roles = ", ".join(
+                call.get("role", "?") for call in (stage.get("calls") or [])
+            )
+            sections.append(
+                f"- stage `{stage.get('id')}` deps=[{deps}] roles=[{roles}]"
+            )
+        sections.append("")
+
+    if stages:
+        sections.extend(["## Stage execution", ""])
+        for stage in stages:
+            status = "ok" if stage.get("ok") else "failed"
+            sections.append(
+                f"- `{stage.get('id')}` {status}; roles: "
+                + ", ".join(stage.get("roles") or [])
+            )
+        sections.append("")
+
     if context.strip():
         sections.extend(
             [
@@ -88,7 +122,7 @@ def merge_results(
             "## Orchestrator notes",
             "",
             "- Datagrid agents supplied domain judgment / knowledge search.",
-            "- Cursor owns parallelism, local code context, and follow-on repo operations.",
+            "- Cursor owns parallelism, local code context, DAG composition, and follow-on repo operations.",
             "",
         ]
     )
@@ -101,4 +135,6 @@ def merge_results(
         results=payload_results,
         markdown="\n".join(sections).rstrip() + "\n",
         ok=ok,
+        plan=plan,
+        stages=list(stages or []),
     )

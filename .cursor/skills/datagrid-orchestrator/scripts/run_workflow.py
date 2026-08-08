@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
 
-    from datagrid_agents.orchestrator import list_workflows, run_workflow
+    from datagrid_agents.orchestrator import list_workflows, run_compose, run_workflow
 
     parser = argparse.ArgumentParser(
         description="Run a Datagrid orchestrator workflow for the Cursor skill.",
@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "workflow",
         nargs="?",
-        help="Workflow name (omit with --list)",
+        help="Workflow name, or 'compose' for NL DAG composition (omit with --list)",
     )
     parser.add_argument("--prompt", "-p", help="User goal / prompt text")
     parser.add_argument("--file", "-f", help="Read prompt from a file")
@@ -45,6 +45,26 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="For fanout: call each role N times (default: 1)",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["auto", "heuristic", "llm"],
+        default="auto",
+        help="For compose: planner mode",
+    )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="For compose: force LLM planner",
+    )
+    parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="For compose: emit plan without executing specialty agents",
+    )
+    parser.add_argument(
+        "--dag",
+        help="For compose: execute a precomputed DAG JSON file",
+    )
     parser.add_argument("--max-workers", type=int, default=3)
     parser.add_argument("--runs-dir", default=".orchestrator/runs")
     parser.add_argument("--no-save", action="store_true")
@@ -52,31 +72,54 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="List workflows")
     args = parser.parse_args(argv)
 
-    if args.list or not args.workflow:
+    if args.list:
         for name in list_workflows():
             print(name)
-        return 0 if args.list or not args.workflow else 2
+        print("compose")
+        return 0
 
-    prompt = args.prompt
+    if not args.workflow:
+        for name in list_workflows():
+            print(name)
+        print("compose")
+        return 0
+
+    prompt = args.prompt or ""
     if args.file:
         prompt = Path(args.file).read_text(encoding="utf-8")
-    if not prompt:
-        print("Provide --prompt or --file.", file=sys.stderr)
-        return 2
 
-    roles = None
-    if args.roles:
-        roles = [part.strip() for part in args.roles.split(",") if part.strip()]
-
-    run = run_workflow(
-        args.workflow,
-        prompt,
-        context_paths=args.context or None,
-        roles=roles,
-        repeats=args.repeat,
-        max_workers=args.max_workers,
-        runs_dir=None if args.no_save else Path(args.runs_dir),
-    )
+    if args.workflow == "compose":
+        plan = None
+        if args.dag:
+            plan = json.loads(Path(args.dag).read_text(encoding="utf-8"))
+        if plan is None and not str(prompt).strip():
+            print("Provide --prompt/--file and/or --dag.", file=sys.stderr)
+            return 2
+        run = run_compose(
+            prompt,
+            context_paths=args.context or None,
+            mode="llm" if args.llm else args.mode,
+            plan=plan,
+            plan_only=args.plan_only,
+            max_workers=args.max_workers,
+            runs_dir=None if args.no_save else Path(args.runs_dir),
+        )
+    else:
+        if not str(prompt).strip():
+            print("Provide --prompt or --file.", file=sys.stderr)
+            return 2
+        roles = None
+        if args.roles:
+            roles = [part.strip() for part in args.roles.split(",") if part.strip()]
+        run = run_workflow(
+            args.workflow,
+            prompt,
+            context_paths=args.context or None,
+            roles=roles,
+            repeats=args.repeat,
+            max_workers=args.max_workers,
+            runs_dir=None if args.no_save else Path(args.runs_dir),
+        )
     if args.json:
         print(json.dumps(run.to_dict(), indent=2))
     else:
