@@ -2,16 +2,26 @@ import type { CreditsUsage } from '../lib/api'
 
 type Props = {
   credits?: CreditsUsage | null
+  compact?: boolean
 }
 
 function formatCredits(value: number): string {
   if (!Number.isFinite(value)) return '—'
   if (Number.isInteger(value)) return String(value)
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
-export function CreditsBox({ credits }: Props) {
+export function CreditsBox({ credits, compact = false }: Props) {
   if (!credits || credits.consumed == null) return null
+
+  if (compact) {
+    return (
+      <p className="credits-compact" aria-live="polite">
+        <span>Credits used</span>
+        <strong>{formatCredits(credits.consumed)}</strong>
+      </p>
+    )
+  }
 
   return (
     <div className="credits-box" aria-live="polite">

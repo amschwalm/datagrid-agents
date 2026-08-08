@@ -4,6 +4,7 @@ import { ConnectivityGraph } from '../components/ConnectivityGraph'
 import { CreditsBox } from '../components/CreditsBox'
 import { ElapsedClock } from '../components/ElapsedClock'
 import { FindingsTable } from '../components/FindingsTable'
+import { KeyFindings } from '../components/KeyFindings'
 import { ReasoningSteps } from '../components/ReasoningSteps'
 import {
   checkApiHealth,
@@ -56,6 +57,8 @@ export function LessonsFlow() {
   const [completedPasses, setCompletedPasses] = useState(0)
   const [passLine, setPassLine] = useState('')
   const [message, setMessage] = useState('')
+  const [extraContext, setExtraContext] = useState('')
+  const [contextNotes, setContextNotes] = useState<string[]>([])
   const [chat, setChat] = useState<ChatTurn[]>([])
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [endedAt, setEndedAt] = useState<number | null>(null)
@@ -124,6 +127,21 @@ export function LessonsFlow() {
       question,
       answer: answers[index] || '',
     }))
+  }
+
+  function answersWithContext(addedContext?: string): QAItem[] {
+    const base = collected()
+    const notes = [...contextNotes]
+    const incoming = (addedContext || '').trim()
+    if (incoming) notes.push(incoming)
+    if (!notes.length) return base
+    return [
+      ...base,
+      {
+        question: 'Additional project context from the team',
+        answer: notes.map((note, index) => `${index + 1}. ${note}`).join('\n'),
+      },
+    ]
   }
 
   function upsertStep(next: ReasoningStep) {
@@ -328,24 +346,36 @@ export function LessonsFlow() {
     }
   }
 
-  async function runExtract() {
+  async function runExtract(options?: { addedContext?: string }) {
     if (!confirmation?.matched) return
+    const addedContext = (options?.addedContext || '').trim()
+    const extractAnswers = answersWithContext(addedContext)
+    if (addedContext) {
+      setContextNotes((prev) => [...prev, addedContext])
+      setExtraContext('')
+    }
     setLoading(true)
     setError('')
     setActiveLinks([])
     setPulseNodes([])
     setCompletedPasses(0)
     setCredits(null)
-    setPassLine('Starting the project review…')
+    setPassLine(
+      addedContext
+        ? 'Re-running with your added project context…'
+        : 'Starting the project review…',
+    )
     setChat([])
     setEndedAt(null)
     setStartedAt(Date.now())
     setStep('analyzing')
     upsertStep({
       id: 'extract-launch',
-      label: 'Starting project review',
+      label: addedContext ? 'Re-running with added context' : 'Starting project review',
       status: 'running',
-      detail: `Reviewing ${project.trim()}`,
+      detail: addedContext
+        ? `Adding context, then reviewing ${project.trim()}`
+        : `Reviewing ${project.trim()}`,
     })
 
     try {
@@ -356,7 +386,7 @@ export function LessonsFlow() {
           project: confirmedName,
           knowledge_id: confirmation.knowledge_id || '',
           knowledge_name: confirmation.knowledge_name || confirmedName,
-          answers: collected(),
+          answers: extractAnswers,
         },
         {
           onStep: upsertStep,
@@ -486,6 +516,8 @@ export function LessonsFlow() {
     setPassLine('')
     setChat([])
     setMessage('')
+    setExtraContext('')
+    setContextNotes([])
     setError('')
     setStartedAt(null)
     setEndedAt(null)
@@ -494,10 +526,15 @@ export function LessonsFlow() {
   const currentQuestion = questions[qIndex]
   const currentAnswer = answers[qIndex] || ''
   const onLastQuestion = qIndex === questions.length - 1
-  const showReasoning = reasoning.length > 0 || loading || step === 'analyzing'
+  const showReasoning =
+    step !== 'result' && (reasoning.length > 0 || loading || step === 'analyzing')
 
   return (
-    <main className={`page${step === 'analyzing' ? ' page-analysis' : ''}`}>
+    <main
+      className={`page${
+        step === 'analyzing' || step === 'result' ? ' page-analysis' : ''
+      }`}
+    >
       <section className="panel">
         <div className="progress-row">
           <p className="progress">Lessons Learned · {progress}%</p>
@@ -786,7 +823,7 @@ export function LessonsFlow() {
                       <button
                         className="btn btn-primary"
                         disabled={loading || !currentAnswer.trim()}
-                        onClick={runExtract}
+                        onClick={() => runExtract()}
                       >
                         Find lessons
                       </button>
@@ -834,7 +871,7 @@ export function LessonsFlow() {
                     >
                       Back to questions
                     </button>
-                    <button className="btn btn-primary" onClick={runExtract}>
+                    <button className="btn btn-primary" onClick={() => runExtract()}>
                       Try again
                     </button>
                   </div>
@@ -846,56 +883,100 @@ export function LessonsFlow() {
               <>
                 <h2>Lessons found</h2>
                 <p className="sub">
-                  Top lessons for {confirmation?.project_name || project}. Ask a follow-up
-                  if you want to dig into any of them.
+                  Top lessons for {confirmation?.project_name || project}. Review the
+                  summary, dig into the table, then ask a question or add more project
+                  context for another run.
                 </p>
-                {summary ? <div className="result summary-block">{summary}</div> : null}
-                {actions.length > 0 && (
-                  <div className="actions-block">
-                    <h3>What to do next</h3>
-                    <ol>
-                      {actions.map((action) => (
-                        <li key={action}>{action}</li>
+
+                <KeyFindings summary={summary} findings={findings} actions={actions} />
+
+                {contextNotes.length > 0 ? (
+                  <div className="context-notes">
+                    <h3>Context added for this run</h3>
+                    <ul>
+                      {contextNotes.map((note, index) => (
+                        <li key={`${index}-${note.slice(0, 24)}`}>{note}</li>
                       ))}
-                    </ol>
+                    </ul>
                   </div>
-                )}
-                <CreditsBox credits={credits} />
+                ) : null}
+
                 <FindingsTable findings={findings} />
-                <div className="chat-box">
-                  <h3 className="chat-title">Ask a follow-up</h3>
-                  <div className="chat-log">
-                    {chat.map((turn, index) => (
-                      <div key={`${turn.role}-${index}`} className={`chat-turn ${turn.role}`}>
-                        <span>{turn.role === 'user' ? 'You' : 'Lessons'}</span>
-                        <p>{turn.text}</p>
-                      </div>
-                    ))}
+
+                <div className="result-panels">
+                  <div className="result-panel">
+                    <h3>Ask a follow-up</h3>
+                    <p className="result-panel-sub">
+                      Ask about a lesson, trade, or decision without starting a new run.
+                    </p>
+                    <div className="chat-log">
+                      {chat.map((turn, index) => (
+                        <div
+                          key={`${turn.role}-${index}`}
+                          className={`chat-turn ${turn.role}`}
+                        >
+                          <span>{turn.role === 'user' ? 'You' : 'Lessons'}</span>
+                          <p>{turn.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="field">
+                      <label htmlFor="message">Your question</label>
+                      <textarea
+                        id="message"
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        placeholder="Which lessons should we carry into the next buyout?"
+                      />
+                    </div>
+                    <div className="actions">
+                      <button
+                        className="btn btn-primary"
+                        disabled={loading || !message.trim() || !result}
+                        onClick={sendFollowup}
+                      >
+                        {loading ? 'Working…' : 'Ask question'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="field">
-                    <label htmlFor="message">Your question</label>
-                    <textarea
-                      id="message"
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Which lessons should we carry into the next buyout?"
-                    />
+
+                  <div className="result-panel">
+                    <h3>Add project context</h3>
+                    <p className="result-panel-sub">
+                      Add missing job detail, then run again so the new context is used
+                      in the lessons.
+                    </p>
+                    <div className="field">
+                      <label htmlFor="extra-context">Additional context</label>
+                      <textarea
+                        id="extra-context"
+                        value={extraContext}
+                        onChange={(e) => setExtraContext(e.target.value)}
+                        placeholder="e.g. Phase 2 buyout was delayed by switchgear lead times; owner directed value engineering on lobby finishes…"
+                      />
+                    </div>
+                    <div className="actions">
+                      <button
+                        className="btn btn-primary"
+                        disabled={loading || !extraContext.trim()}
+                        onClick={() => runExtract({ addedContext: extraContext })}
+                      >
+                        {loading ? 'Starting…' : 'Run again with this context'}
+                      </button>
+                    </div>
                   </div>
+                </div>
+
+                <div className="result-footer">
+                  <CreditsBox credits={credits} compact />
                   <div className="actions">
                     <button className="btn" onClick={resetAll}>
                       Start over
                     </button>
-                    <button
-                      className="btn btn-primary"
-                      disabled={loading || !message.trim()}
-                      onClick={sendFollowup}
-                    >
-                      {loading ? 'Working…' : 'Send'}
-                    </button>
                   </div>
-                  <p className="status-line">{passLine}</p>
-                  {error && <p className="error">{error}</p>}
                 </div>
+                <p className="status-line">{passLine}</p>
+                {error ? <p className="error">{error}</p> : null}
               </>
             )}
           </div>
