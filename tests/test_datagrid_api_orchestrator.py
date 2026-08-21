@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parents[1] / ".cursor/skills/datagrid-api-orchestrator/scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / ".cursor/skills/datagrid-orchestrator/scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import datagrid_client as dc  # noqa: E402

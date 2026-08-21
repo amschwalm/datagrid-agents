@@ -130,7 +130,7 @@ class DatagridClient:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "application/json",
-            "User-Agent": "datagrid-api-orchestrator/1.0",
+            "User-Agent": "datagrid-orchestrator/1.0",
         }
         if teamspace_id:
             headers["Datagrid-Teamspace"] = teamspace_id
