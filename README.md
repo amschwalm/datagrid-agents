@@ -93,9 +93,21 @@ python .cursor/skills/datagrid-orchestrator/scripts/orchestrate.py \
 Skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
 Subagent: `.cursor/agents/datagrid.md`.
 
-The `datagrid-agents` CLI (`roles`, `orchestrate`, `compose`) and
-`src/datagrid_agents/orchestrator/` still exist for the Lessons Learned web app
-and local agent YAML sync. Cursor chats should use the skill scripts above.
+The `datagrid-agents` CLI now uses the same stdlib orchestrator:
+
+```bash
+datagrid-agents whoami
+datagrid-agents roles
+datagrid-agents explore --teamspace "KSA Demo" --out profile
+datagrid-agents orchestrate \
+  --agents "Mentor Agent,Schedule Intelligence" \
+  --prompt "Top risks from lessons learned" \
+  --teamspace "KSA Demo" --out results
+```
+
+`src/datagrid_agents/orchestrator/` is a thin adapter: role registry (`agents.yaml`),
+`run_parallel` (stall retries via the skill), and the lessons-multipass lenses used
+by the Lessons Learned web app.
 
 ## Included agents
 
@@ -143,7 +155,7 @@ src/datagrid_agents/
   registry.py            # load YAML definitions
   service.py             # create / sync / converse
   definitions/           # construction agent blueprints
-  orchestrator/          # package workflows used by the web extract pipeline
+  orchestrator/          # stdlib skill adapter + lessons-multipass lenses
 server/
   app.py                 # Lessons Learned FastAPI
 web/                     # Lessons Learned Vite/React UI

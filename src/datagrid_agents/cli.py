@@ -8,12 +8,8 @@ import sys
 from pathlib import Path
 
 from datagrid_agents.client import MissingApiKeyError
-from datagrid_agents.orchestrator import (
-    list_roles,
-    list_workflows,
-    run_compose,
-    run_workflow,
-)
+from datagrid_agents.orchestrator import list_roles
+from datagrid_agents.orchestrator.skill_bridge import load_skill_modules, skill_scripts_dir
 from datagrid_agents.registry import list_definitions, load_definition
 from datagrid_agents import service
 
@@ -95,87 +91,54 @@ def cmd_roles(_: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_workflows(_: argparse.Namespace) -> int:
-    names = list_workflows()
-    if not names:
-        print("No orchestrator workflows registered.")
-        return 0
-    for name in names:
-        print(name)
-    return 0
-
-
 def cmd_orchestrate(args: argparse.Namespace) -> int:
-    prompt = args.prompt
+    """Dispatch through the stdlib skill orchestrator (jobs.json or --agents)."""
+    _, orch_mod = load_skill_modules()
+    argv: list[str] = []
+    if args.jobs:
+        argv.extend(["--jobs", args.jobs])
+    if args.agents:
+        argv.extend(["--agents", args.agents])
+    if args.prompt:
+        argv.extend(["--prompt", args.prompt])
     if args.file:
         prompt = Path(args.file).read_text(encoding="utf-8")
-    if not prompt:
-        print("Provide --prompt or --file.", file=sys.stderr)
-        return 2
-
-    roles = None
-    if args.roles:
-        roles = [part.strip() for part in args.roles.split(",") if part.strip()]
-        if not roles:
-            print("error: --roles was empty", file=sys.stderr)
-            return 2
-
-    run = run_workflow(
-        args.workflow,
-        prompt,
-        context_paths=args.context or None,
-        roles=roles,
-        repeats=args.repeat,
-        max_workers=args.max_workers,
-        timeout_seconds=args.timeout,
-        max_calls=args.max_calls,
-        cache=not args.no_cache,
-        write_register=not args.no_register,
-        register_dir=None if args.no_register else Path(args.register_dir),
-        runs_dir=None if args.no_save else Path(args.runs_dir),
-    )
-    if args.json:
-        print(json.dumps(run.to_dict(), indent=2))
-    else:
-        print(run.markdown)
-    return 0 if run.ok else 1
+        argv.extend(["--prompt", prompt])
+    if args.teamspace:
+        argv.extend(["--teamspace", args.teamspace])
+    argv.extend(["--out", args.out])
+    argv.extend(["--concurrency", str(args.concurrency)])
+    argv.extend(["--max-retries", str(args.max_retries)])
+    try:
+        return orch_mod.main(argv)
+    except SystemExit as exc:
+        code = exc.code
+        return int(code) if isinstance(code, int) else 1
 
 
-def cmd_compose(args: argparse.Namespace) -> int:
-    prompt = args.prompt or ""
-    if args.file:
-        prompt = Path(args.file).read_text(encoding="utf-8")
+def cmd_explore(args: argparse.Namespace) -> int:
+    import importlib
 
-    plan = None
-    if args.dag:
-        plan = json.loads(Path(args.dag).read_text(encoding="utf-8"))
+    scripts = str(skill_scripts_dir())
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    explore = importlib.import_module("explore")
+    argv = ["--teamspace", args.teamspace, "--out", args.out]
+    if args.queries:
+        argv.extend(["--queries", args.queries])
+    try:
+        return explore.main(argv)
+    except SystemExit as exc:
+        code = exc.code
+        return int(code) if isinstance(code, int) else 1
 
-    if plan is None and not str(prompt).strip():
-        print("Provide --prompt/--file and/or --dag.", file=sys.stderr)
-        return 2
 
-    mode = "llm" if args.llm else args.mode
-    run = run_compose(
-        prompt,
-        context_paths=args.context or None,
-        mode=mode,
-        planner_role=args.planner_role,
-        plan=plan,
-        plan_only=args.plan_only,
-        max_workers=args.max_workers,
-        timeout_seconds=args.timeout,
-        max_calls=args.max_calls,
-        continue_conversations=not args.no_continue,
-        cache=not args.no_cache,
-        write_register=not args.no_register,
-        register_dir=None if args.no_register else Path(args.register_dir),
-        runs_dir=None if args.no_save else Path(args.runs_dir),
-    )
-    if args.json:
-        print(json.dumps(run.to_dict(), indent=2))
-    else:
-        print(run.markdown)
-    return 0 if run.ok else 1
+def cmd_whoami(_: argparse.Namespace) -> int:
+    client_mod, _ = load_skill_modules()
+    client = client_mod.DatagridClient()
+    json.dump(client.whoami(), sys.stdout, indent=2, default=str)
+    sys.stdout.write("\n")
+    return 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -280,140 +243,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_roles.set_defaults(func=cmd_roles)
 
-    p_workflows = sub.add_parser(
-        "workflows",
-        help="List named Cursor/Datagrid orchestration playbooks",
+    p_whoami = sub.add_parser("whoami", help="Show Datagrid identity for this API key")
+    p_whoami.set_defaults(func=cmd_whoami)
+
+    p_explore = sub.add_parser(
+        "explore",
+        help="Profile a teamspace (knowledge, tables, agents, AI-search sweep)",
     )
-    p_workflows.set_defaults(func=cmd_workflows)
+    p_explore.add_argument("--teamspace", "-t", required=True, help="Teamspace name or id")
+    p_explore.add_argument("--out", default="profile", help="Output directory")
+    p_explore.add_argument("--queries", help="Optional extra AI-search probes file")
+    p_explore.set_defaults(func=cmd_explore)
 
     p_orch = sub.add_parser(
         "orchestrate",
-        help="Run a parallel Datagrid + local-context orchestration workflow",
+        help="Run concurrent Datagrid converse jobs (stdlib skill orchestrator)",
     )
-    p_orch.add_argument(
-        "workflow",
-        help="Workflow name (see: datagrid-agents workflows)",
-    )
-    p_orch.add_argument("--prompt", "-p", help="Prompt / user goal text")
+    p_orch.add_argument("--jobs", help="jobs.json (list or {jobs:[...]})")
+    p_orch.add_argument("--agents", help="Comma-separated agent names/ids (with --prompt)")
+    p_orch.add_argument("--prompt", "-p", help="Shared prompt when using --agents")
     p_orch.add_argument("--file", "-f", help="Read prompt from a file")
-    p_orch.add_argument(
-        "--context",
-        "-c",
-        action="append",
-        default=[],
-        help="Local file or directory to attach as code/context (repeatable)",
-    )
-    p_orch.add_argument(
-        "--roles",
-        help="Comma-separated role keys for the fanout workflow (e.g. mentor,schedule,rfi)",
-    )
-    p_orch.add_argument(
-        "--repeat",
-        type=int,
-        default=1,
-        help="For fanout: call each role N times with distinct pass angles (default: 1)",
-    )
-    _add_runtime_flags(p_orch)
+    p_orch.add_argument("--teamspace", "-t", help="Default teamspace name or id")
+    p_orch.add_argument("--out", default="results", help="Output directory")
+    p_orch.add_argument("--concurrency", type=int, default=6)
+    p_orch.add_argument("--max-retries", type=int, default=2)
     p_orch.set_defaults(func=cmd_orchestrate)
 
-    p_compose = sub.add_parser(
-        "compose",
-        help="Compose a multi-stage Datagrid DAG from natural language and run it",
-    )
-    p_compose.add_argument("--prompt", "-p", help="Natural-language goal")
-    p_compose.add_argument("--file", "-f", help="Read goal from a file")
-    p_compose.add_argument(
-        "--context",
-        "-c",
-        action="append",
-        default=[],
-        help="Local file or directory to attach (repeatable)",
-    )
-    p_compose.add_argument(
-        "--mode",
-        choices=["auto", "heuristic", "llm"],
-        default="auto",
-        help="Planner mode (default: auto)",
-    )
-    p_compose.add_argument(
-        "--llm",
-        action="store_true",
-        help="Force LLM planner mode (shortcut for --mode llm)",
-    )
-    p_compose.add_argument(
-        "--planner-role",
-        default="mentor",
-        help="Role used for LLM planning (default: mentor)",
-    )
-    p_compose.add_argument(
-        "--dag",
-        help="Execute a precomputed DAG JSON file instead of planning",
-    )
-    p_compose.add_argument(
-        "--plan-only",
-        action="store_true",
-        help="Print/save the composed plan without calling specialty agents",
-    )
-    p_compose.add_argument(
-        "--no-continue",
-        action="store_true",
-        help="Do not reuse conversation_id across stages for the same agent",
-    )
-    _add_runtime_flags(p_compose)
-    p_compose.set_defaults(func=cmd_compose)
-
     return parser
-
-
-def _add_runtime_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=None,
-        help="Max parallel Datagrid calls (default: env/budget, usually 3)",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=None,
-        help="Per-stage timeout seconds (default: env/budget, usually 120)",
-    )
-    parser.add_argument(
-        "--max-calls",
-        type=int,
-        default=None,
-        help="Max Datagrid calls in one fan-out/stage (default: env/budget, usually 12)",
-    )
-    parser.add_argument(
-        "--runs-dir",
-        default=".orchestrator/runs",
-        help="Directory for run artifacts (default: .orchestrator/runs)",
-    )
-    parser.add_argument(
-        "--register-dir",
-        default=".orchestrator/registers",
-        help="Directory for risk-register markdown (default: .orchestrator/registers)",
-    )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Do not write run artifacts to disk",
-    )
-    parser.add_argument(
-        "--no-register",
-        action="store_true",
-        help="Skip synthesized risk/checklist register output",
-    )
-    parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable converse result cache",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit JSON instead of markdown",
-    )
 
 
 def main(argv: list[str] | None = None) -> int:
