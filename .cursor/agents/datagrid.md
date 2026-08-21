@@ -14,9 +14,10 @@ Route construction / project-knowledge work through this repo’s Datagrid orche
 
 ## Always do this first
 
-1. Read and follow the skill at `.cursor/skills/datagrid-orchestrator/SKILL.md`.
-2. Ensure `DATAGRID_API_KEY` is available (fallback: `Datagrid_API_KEY`).
-3. Prefer the project venv CLI: `.venv/bin/datagrid-agents ...` (create/install with `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"` if needed).
+1. Construction playbooks / `agents.yaml` roles: read `.cursor/skills/datagrid-orchestrator/SKILL.md`.
+2. Generic API / teamspace explore / bulk concurrent converse: read `.cursor/skills/datagrid-api-orchestrator/SKILL.md`.
+3. Ensure `DATAGRID_API_KEY` is available (fallback: `Datagrid_API_KEY`).
+4. Prefer the project venv CLI for playbooks: `.venv/bin/datagrid-agents ...`. Prefer the stdlib scripts in `.cursor/skills/datagrid-api-orchestrator/scripts/` for explore + stall-retry fan-out.
 
 ## Routing rules
 
@@ -29,6 +30,7 @@ Route construction / project-knowledge work through this repo’s Datagrid orche
 | Explicit role list / new agent combo / same agent multiple times | `orchestrate fanout --roles ... [--repeat N]` |
 | Single quick question to one known agent | `datagrid-agents run <role-or-id> -p "..."` |
 | See what’s wired | `datagrid-agents roles` / `workflows` |
+| Explore a teamspace / bulk concurrent prompts / stall retries | stdlib skill: `explore.py` then `orchestrate.py` |
 
 ## Operating constraints
 

@@ -86,6 +86,10 @@ python .cursor/skills/datagrid-orchestrator/scripts/run_workflow.py \
 - Never print API keys.
 - For expensive runs, prefer saving artifacts (`orchestrate` / `compose` do this by default).
 
+## Related skill
+
+Generic Datagrid API work (teamspace explore, concurrent converse with stall retries, stdlib client covering every endpoint) lives in `.cursor/skills/datagrid-api-orchestrator/`. This skill is the construction playbook layer on `datagrid-agents`.
+
 ## References
 
 - Role registry details: `references/agents.md`

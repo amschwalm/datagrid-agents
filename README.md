@@ -113,7 +113,19 @@ Hardening defaults:
 - synthesized risk/checklist register in `.orchestrator/registers/` (`--no-register` to skip)
 - compose can continue `conversation_id` across stages for the same agent
 
-Cursor skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
+Cursor skills:
+
+- `.cursor/skills/datagrid-orchestrator/` — construction playbooks (`datagrid-agents orchestrate` / `compose`, `agents.yaml` roles).
+- `.cursor/skills/datagrid-api-orchestrator/` — stdlib Datagrid API toolkit: explore a teamspace, concurrent converse with stall retries, every endpoint via `scripts/datagrid_client.py`.
+
+```bash
+python .cursor/skills/datagrid-api-orchestrator/scripts/datagrid_client.py whoami
+python .cursor/skills/datagrid-api-orchestrator/scripts/explore.py --teamspace "KSA Demo" --out profile
+python .cursor/skills/datagrid-api-orchestrator/scripts/orchestrate.py \
+  --agents "Mentor Agent,Schedule Intelligence" \
+  --prompt "Top risks from lessons learned" \
+  --teamspace "KSA Demo" --out results --concurrency 6
+```
 
 Cursor subagent: `.cursor/agents/datagrid.md` — use the **datagrid** agent / `/datagrid` so chats route construction/knowledge work through the orchestrator.
 
@@ -170,7 +182,8 @@ server/
   app.py                 # Lessons Learned FastAPI
 web/                     # Lessons Learned Vite/React UI
 .cursor/skills/
-  datagrid-orchestrator/ # Cursor skill for hybrid orchestration
+  datagrid-orchestrator/      # construction playbook skill
+  datagrid-api-orchestrator/  # stdlib API explore + concurrent converse
 .cursor/agents/
   datagrid.md            # Cursor Datagrid subagent
 examples/
