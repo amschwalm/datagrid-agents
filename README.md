@@ -76,48 +76,38 @@ List agents already in Datagrid:
 datagrid-agents remote
 ```
 
-## Cursor orchestrator (Datagrid API + local code)
+## Cursor orchestrator
 
-Build agents in Datagrid, then coordinate them from Cursor:
+Stdlib Datagrid API toolkit: explore a teamspace, write targeted prompts, then
+dispatch many converse jobs concurrently with retry-on-stall.
 
 ```bash
-datagrid-agents roles
-datagrid-agents workflows
-datagrid-agents orchestrate utility_buyout_risks \
-  -p "Buying out elec utility package — top risks from lessons learned" \
-  -c ./notes/utility-buyout.md
-
-# Other playbooks
-datagrid-agents orchestrate rfi_packet_qa -p "Review RFI-12" -c ./packets/rfi-12
-datagrid-agents orchestrate submittal_disposition -p "Disposition 03 30 00" -c ./submittals/033000
-datagrid-agents orchestrate lessons_multipass \
-  -p "Utility buyout slipped late in Phase 2" \
-  -c ./notes/interview.md
-
-# New/custom agents (register in agents.yaml or DATAGRID_AGENT_<ROLE>)
-datagrid-agents orchestrate fanout --roles mentor,rfi --repeat 1 -p "Pressure-test this buyout"
-# Same agent, multiple passes:
-datagrid-agents orchestrate fanout --roles mentor --repeat 2 -p "Pass 1 underground; pass 2 commercial"
-
-# Natural-language DAG composition (plan and/or execute multi-stage graphs)
-datagrid-agents compose -p "Review RFI-12, then synthesize mentor + schedule risks" --plan-only
-datagrid-agents compose -p "First gather drawing evidence, then synthesize risks" --mode auto
-datagrid-agents compose --dag ./plan.json
+python .cursor/skills/datagrid-orchestrator/scripts/datagrid_client.py whoami
+python .cursor/skills/datagrid-orchestrator/scripts/explore.py --teamspace "KSA Demo" --out profile
+python .cursor/skills/datagrid-orchestrator/scripts/orchestrate.py \
+  --agents "Mentor Agent,Schedule Intelligence" \
+  --prompt "Top risks from lessons learned" \
+  --teamspace "KSA Demo" --out results --concurrency 6
 ```
 
-Named playbooks fan out parallel Datagrid converse calls, attach local file context, run lightweight local differential checks where relevant, and write artifacts under `.orchestrator/runs/`. `compose` builds a multi-stage DAG from natural language (heuristic and/or LLM planner).
+Skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
+Subagent: `.cursor/agents/datagrid.md`.
 
-Hardening defaults:
-- budgets via `--max-workers` / `--timeout` / `--max-calls` (or `DATAGRID_ORCH_*` env)
-- converse result cache in `.orchestrator/cache` (`--no-cache` to disable)
-- synthesized risk/checklist register in `.orchestrator/registers/` (`--no-register` to skip)
-- compose can continue `conversation_id` across stages for the same agent
+The `datagrid-agents` CLI now uses the same stdlib orchestrator:
 
-Cursor skill: `.cursor/skills/datagrid-orchestrator/` (`/datagrid-orchestrator`).
+```bash
+datagrid-agents whoami
+datagrid-agents roles
+datagrid-agents explore --teamspace "KSA Demo" --out profile
+datagrid-agents orchestrate \
+  --agents "Mentor Agent,Schedule Intelligence" \
+  --prompt "Top risks from lessons learned" \
+  --teamspace "KSA Demo" --out results
+```
 
-Cursor subagent: `.cursor/agents/datagrid.md` — use the **datagrid** agent / `/datagrid` so chats route construction/knowledge work through the orchestrator.
-
-Role IDs live in `src/datagrid_agents/orchestrator/agents.yaml` (override with `DATAGRID_AGENT_<ROLE>`).
+`src/datagrid_agents/orchestrator/` is a thin adapter: role registry (`agents.yaml`),
+`run_parallel` (stall retries via the skill), and the lessons-multipass lenses used
+by the Lessons Learned web app.
 
 ## Included agents
 
@@ -165,12 +155,12 @@ src/datagrid_agents/
   registry.py            # load YAML definitions
   service.py             # create / sync / converse
   definitions/           # construction agent blueprints
-  orchestrator/          # parallel Datagrid + local-context workflows
+  orchestrator/          # stdlib skill adapter + lessons-multipass lenses
 server/
   app.py                 # Lessons Learned FastAPI
 web/                     # Lessons Learned Vite/React UI
 .cursor/skills/
-  datagrid-orchestrator/ # Cursor skill for hybrid orchestration
+  datagrid-orchestrator/ # stdlib API explore + concurrent converse
 .cursor/agents/
   datagrid.md            # Cursor Datagrid subagent
 examples/

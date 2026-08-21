@@ -35,6 +35,9 @@ htmlcov/
 
 # Orchestrator run artifacts / cache
 .orchestrator/
+.cursor/skills/datagrid-orchestrator/profile/
+.cursor/skills/datagrid-orchestrator/results/
+.cursor/skills/datagrid-orchestrator/scripts/.env
 
 # Web app
 web/node_modules/
